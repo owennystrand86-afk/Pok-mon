@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users_private
+    // Document ID: {userId}
+    // Fields:
+    //   - email: string (required)
+    //   - coins: integer (required)
+    //   - collection: array (optional)
+    //   - inventory: array (optional)
+    //   - unlockedPlanets: array (optional)
+    //   - currentPlanetId: string (optional)
+    //   - lastSaved: string (optional)
+    //
+    // Collection: users_public
+    // Document ID: {userId}
+    // Fields:
+    //   - displayName: string (required)
+    //   - photoURL: string (optional)
+    //   - wins: integer (required)
+    //   - losses: integer (required)
+    //   - cardsCollected: integer (required)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUserPrivate(data) {
+      return data.email is string && isValidEmail(data.email) &&
+             data.coins is int && data.coins >= 0 &&
+             (!('collection' in data) || data.collection is list) &&
+             (!('inventory' in data) || data.inventory is list) &&
+             (!('unlockedPlanets' in data) || data.unlockedPlanets is list) &&
+             (!('currentPlanetId' in data) || data.currentPlanetId is string) &&
+             (!('lastSaved' in data) || data.lastSaved is string);
+    }
+
+    function isValidUserPublic(data) {
+      return data.displayName is string && data.displayName.size() > 0 && data.displayName.size() < 50 &&
+             (!('photoURL' in data) || data.photoURL is string) &&
+             data.wins is int && data.wins >= 0 &&
+             data.losses is int && data.losses >= 0 &&
+             data.cardsCollected is int && data.cardsCollected >= 0;
+    }
+
+    // Rules for users_private
+    match /users_private/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUserPrivate(request.resource.data);
+      allow update: if isOwner(userId) && isValidUserPrivate(request.resource.data);
+      allow delete: if false;
+    }
+
+    // Rules for users_public
+    match /users_public/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUserPublic(request.resource.data);
+      allow update: if isOwner(userId) && isValidUserPublic(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}

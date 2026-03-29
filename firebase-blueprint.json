@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "UserPrivate": {
+      "title": "UserPrivate",
+      "description": "Private sensitive data for each user.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "coins": { "type": "integer" },
+        "collection": { "type": "array", "items": { "type": "object" } },
+        "inventory": { "type": "array", "items": { "type": "object" } },
+        "unlockedPlanets": { "type": "array", "items": { "type": "string" } },
+        "currentPlanetId": { "type": "string" },
+        "lastSaved": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "coins"]
+    },
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Public stats for the leaderboard.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "wins": { "type": "integer" },
+        "losses": { "type": "integer" },
+        "cardsCollected": { "type": "integer" }
+      },
+      "required": ["displayName", "wins", "losses", "cardsCollected"]
+    }
+  },
+  "firestore": {
+    "/users_private/{userId}": {
+      "schema": "UserPrivate",
+      "description": "Stores private user progress."
+    },
+    "/users_public/{userId}": {
+      "schema": "UserPublic",
+      "description": "Stores public user stats for the leaderboard."
+    }
+  }
+}
