@@ -1,1 +1,1 @@
-https://ai.studio/apps/651f2423-5297-414c-a4a2-383b1ac35077
+https://ais-pre-wrke744l4fkgzwpv3w2cdz-223829353871.us-east1.run.app
