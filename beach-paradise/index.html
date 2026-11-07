@@ -40,6 +40,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 #uw{position:fixed;inset:0;pointer-events:none;opacity:0;transition:opacity .35s ease;
   background:radial-gradient(120% 90% at 50% 45%,rgba(0,70,80,0) 35%,rgba(0,26,38,.62) 100%)}
 #flash{position:fixed;inset:0;pointer-events:none;background:#dfe9ff;opacity:0}
+#lens{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:4}
+#act-hint{position:fixed;left:calc(env(safe-area-inset-left,0px) + 16px);bottom:calc(env(safe-area-inset-bottom,0px) + 18px);z-index:11;font-size:12.5px;color:var(--mist);padding:7px 13px;border-radius:999px;pointer-events:none;max-width:calc(100vw - 32px)}
+body.touch #act-hint{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 16px);right:calc(env(safe-area-inset-right,0px) + 70px);left:calc(env(safe-area-inset-left,0px) + 16px);text-align:left;width:auto}
 
 /* ---------- start screen ---------- */
 #start{position:fixed;inset:0;display:flex;align-items:flex-end;z-index:20;
@@ -125,7 +128,8 @@ select option{background:#0b2730;color:var(--foam)}
   background:rgba(8,32,40,.32);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);touch-action:none;padding:0}
 .tb svg{width:24px;height:24px}
 .tb.down{background:rgba(242,251,248,.28)}
-#t-act{width:auto;height:46px;border-radius:999px;padding:0 18px;font-weight:600;font-size:14px}
+#t-act,#t-tool,#t-use{width:auto;height:46px;border-radius:999px;padding:0 18px;font-weight:600;font-size:14px;color:#fff}
+#t-use{min-width:76px}
 .tb-row{display:flex;gap:12px;align-items:flex-end}
 
 #fatal{position:fixed;inset:0;display:grid;place-items:center;text-align:center;padding:24px;z-index:50;background:var(--ink)}
@@ -142,21 +146,22 @@ select option{background:#0b2730;color:var(--foam)}
 <canvas id="game" tabindex="0" aria-label="Beach Paradise, a 3D island you can explore"></canvas>
 <div id="uw"></div>
 <div id="flash"></div>
+<canvas id="lens"></canvas>
 <div id="crosshair"></div>
 
 <div id="start">
   <div class="start-inner">
     <p class="eyebrow">A tropical island in first person</p>
     <h1>Beach Paradise</h1>
-    <p class="lede">Walk the sand, swim out over the reef, find the waterfall, and stay for the sunset. Nothing to collect and nowhere you have to be.</p>
+    <p class="lede">Walk the sand, swim out over the reef, ride the river down from the waterfall, take the boat out past the surf, or dig a channel and watch the sea pour in. Nothing to collect and nowhere you have to be.</p>
     <div class="begin-row">
       <button id="begin" disabled>Shaping the island…</button>
       <div class="keys desk-only">
         <span><kbd>W A S D</kbd>walk</span><span><kbd>Mouse</kbd>look</span><span><kbd>Shift</kbd>run</span>
-        <span><kbd>Space</kbd>jump · swim up</span><span><kbd>C</kbd>dive</span><span><kbd>E</kbd>sit</span>
+        <span><kbd>Space</kbd>jump · swim up</span><span><kbd>C</kbd>dive</span><span><kbd>E</kbd>sit · drive · ride</span><span><kbd>Q</kbd>shovel · stick</span>
       </div>
       <div class="keys touch-only">
-        <span>Left thumb to walk</span><span>Drag right side to look</span><span>Arrows to swim up and down</span>
+        <span>Left thumb to walk</span><span>Drag right side to look</span><span>Arrows to swim up and down</span><span>Tools for the shovel and stick</span>
       </div>
     </div>
   </div>
@@ -167,12 +172,14 @@ select option{background:#0b2730;color:var(--foam)}
 </button>
 <div id="prompt" class="glass" hidden><kbd>E</kbd><span id="prompt-text"></span></div>
 <div id="hint" class="glass" hidden></div>
+<div id="act-hint" class="glass" hidden></div>
 <div id="toast"><div class="t1" id="toast-1"></div><div class="t2" id="toast-2"></div></div>
 
 <div id="touch" hidden>
   <div id="stick"><div id="knob"></div></div>
   <div id="tbtns">
     <button class="tb" id="t-act" hidden>Sit</button>
+    <div class="tb-row"><button class="tb" id="t-use" hidden>Dig</button><button class="tb" id="t-tool">Tools</button></div>
     <div class="tb-row">
       <button class="tb" id="t-down" aria-label="Dive" hidden><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
       <button class="tb" id="t-up" aria-label="Jump or swim up"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>
@@ -341,7 +348,9 @@ camera.rotation.order = 'YXZ';
 scene.add(camera);
 
 // ──────────────────── 4. Shared uniforms and shader code ────────────────────
-const SURF_TABLE = Array.from({ length: 16 }, (_, i) => 0.16 + 0.36 * mulberry32(700 + i * 13)());
+// breaker heights for 16 consecutive waves (repeating every ~2 minutes); a set of three big ones rolls in each cycle
+const SURF_TABLE = Array.from({ length: 16 }, (_, i) => 0.16 + 0.3 * mulberry32(700 + i * 13)());
+SURF_TABLE[4] = 0.74; SURF_TABLE[5] = 1.02; SURF_TABLE[6] = 0.86; SURF_TABLE[12] = 0.66;
 const U = {
   uTime: { value: 0 },
   uSunDir: { value: new THREE.Vector3(0, 1, 0) },
@@ -565,8 +574,9 @@ const BLOBS = [[0, 0, 380], [185, -150, 265], [-125, 235, 235], [125, 255, 205],
 const ISLET = { x: -610, z: 330, r: 48 };
 const BAY = { x: -20, z: -352, r: 52 };                       // hidden cove (z fitted to the coast at build time)
 const WF = { x: -24, z: -70, nx: 0.997, nz: 0.077, height: 16, halfLen: 44 }; // waterfall escarpment
-const POOL = { x: -37, z: -70, r: 10, level: 50 };
-const STREAM_CTRL = [[8, -79], [-6, -74.5], [-21, -70.6], [-37, -70], [-52, -70.5], [-70, -74], [-95, -84], [-128, -92], [-170, -85], [-218, -97], [-270, -107], [-322, -112], [-370, -114], [-420, -116]];
+const POOL = { x: -38, z: -70, r: 12, level: 50 };
+const SPRING = { x: 8, z: -79, r: 4.4, level: 60 };              // where the river rises
+const STREAM_CTRL = [[-9, -73.2], [-15, -71.8], [-21, -70.6], [-37, -70], [-52, -70.5], [-70, -74], [-95, -84], [-128, -92], [-170, -85], [-218, -97], [-270, -107], [-322, -112], [-370, -114], [-420, -116]];
 const TRAIL_CTRL = [[-318, 26], [-282, 16], [-232, 4], [-182, -10], [-136, -26], [-98, -42], [-70, -50], [-52, -56], [-48, -88], [-44, -112], [-30, -126], [2, -128], [42, -122], [84, -112], [126, -102], [166, -96]];
 
 function smin(a, b, k) { const h = clamp(0.5 + 0.5 * (b - a) / k, 0, 1); return lerp(b, a, h) - k * h * (1 - h); }
@@ -623,14 +633,17 @@ function baseHeight(x, z, out = _bh) {
 const cliffS = (x, z) => (x - WF.x) * WF.nx + (z - WF.z) * WF.nz;
 
 // --- grid access (matches the rendered triangles exactly) ---
-function groundHeight(x, z) {
+function gridSample(H, x, z) {
   const fx = (x - T.min) / T.cell, fz = (z - T.min) / T.cell;
   if (!(fx >= 0 && fz >= 0 && fx < T.res && fz < T.res)) return -45;
   const i = fx | 0, j = fz | 0, tx = fx - i, tz = fz - j, n = T.n, k = j * n + i;
-  const ha = T.h[k], hb = T.h[k + 1], hc = T.h[k + n], hd = T.h[k + n + 1];
+  const ha = H[k], hb = H[k + 1], hc = H[k + n], hd = H[k + n + 1];
   if (tx + tz <= 1) return ha + (hb - ha) * tx + (hc - ha) * tz;
   return hd + (hc - hd) * (1 - tx) + (hb - hd) * (1 - tz);
 }
+const baseGround = (x, z) => gridSample(T.h, x, z);
+// the walkable surface: the island plus anything carved, dug or piled in the living-sand layer
+function groundHeight(x, z) { const b = gridSample(T.h, x, z); return SAND.count ? b + sandDelta(x, z) : b; }
 function groundNormal(x, z, out = new THREE.Vector3()) {
   const e = 0.75;
   return out.set(groundHeight(x - e, z) - groundHeight(x + e, z), 2 * e, groundHeight(x, z - e) - groundHeight(x, z + e)).normalize();
@@ -692,7 +705,37 @@ function nearestOnPath(pts, radius) {
   return res;
 }
 
-const STREAM = { upper: [], lower: [], lip: null, mouth: null };
+const STREAM = { upper: [], lower: [], lip: null, mouth: null, all: [] };
+// exact position relative to the river: distance from the centre line, water level, width, current
+function riverQuery(x, z) {
+  const v = STREAM.near && STREAM.near.get(vIndex(x, z)); if (!v) return null;
+  const pts = STREAM.all; let bd = 1e9, bp = 0, bt = 0;
+  for (let p = Math.max(0, v.p - 4); p <= Math.min(pts.length - 2, v.p + 4); p++) {
+    const A = pts[p], B = pts[p + 1], ex = B.x - A.x, ez = B.z - A.z, el = ex * ex + ez * ez || 1;
+    const t = clamp(((x - A.x) * ex + (z - A.z) * ez) / el, 0, 1), d = Math.hypot(x - A.x - ex * t, z - A.z - ez * t);
+    if (d < bd) { bd = d; bp = p; bt = t; }
+  }
+  const A = pts[bp], B = pts[bp + 1], kind = bt < 0.5 ? A.kind : B.kind;
+  if (kind !== 'upper' && kind !== 'lower') return null;
+  const P0 = A.S !== undefined ? A : B, P1 = B.S !== undefined ? B : A;
+  return { d: bd, S: lerp(P0.S, P1.S, bt), W: lerp(P0.W, P1.W, bt), D: lerp(P0.D, P1.D, bt), speed: lerp(P0.speed, P1.speed, bt), slope: lerp(P0.slope, P1.slope, bt), tx: lerp(A.tx, B.tx, bt), tz: lerp(A.tz, B.tz, bt), kind, i: bp, t: bt };
+}
+function riverShape(h, q) {
+  if (!q) return h;
+  const { d, S, W, D } = q;
+  const prof = d < W ? S - D * Math.pow(1 - (d / W) * (d / W), 0.8) : S + (d - W) * 0.55;
+  let out = Math.min(h, prof);
+  if (S > 0.05 && d >= W && d < W + 3.5) out = Math.max(out, S + 0.3 * smoothstep(W, W + 0.6, d));
+  return out;
+}
+function springShape(h, x, z) {
+  const r = Math.hypot(x - SPRING.x, z - SPRING.z), R = SPRING.r;
+  if (r > R + 3) return h;
+  let out = r < R ? Math.min(h, SPRING.level - 1.4 * (1 - (r / R) * (r / R)) - 0.05) : h;
+  if (r >= R - 0.1) out = Math.max(out, SPRING.level + 0.3 * smoothstep(R - 0.1, R + 0.7, r));
+  return out;
+}
+const riverGround = (x, z, h) => springShape(riverShape(h, riverQuery(x, z)), x, z);
 const TRAIL = { pts: [] };
 const PLACES = {}; // named spots discovered while exploring
 
@@ -709,30 +752,39 @@ function carveFeatures() {
       H[k] = Math.min(H[k], bowl);
     }
   });
-  // 2) the stream: spring → cliff lip (upper), pool → sea (lower)
+  // 2) the river: rises in a spring on the plateau, runs to the cliff lip (upper),
+  //    drops as the falls, then leaves the pool and widens all the way to the sea (lower)
+  T.hPre = T.h.slice();
   const pts = smoothPath(STREAM_CTRL, 1.5);
   for (const p of pts) p.h = groundHeight(p.x, p.z);
-  let run = Infinity; const upper = [], lower = [];
+  const upper = [], lower = [];
+  let S = Infinity;
   for (const p of pts) {
     const s = cliffS(p.x, p.z), rp = Math.hypot(p.x - POOL.x, p.z - POOL.z);
-    if (s > 1.9) { run = Math.min(run, p.h); p.bed = run; p.kind = 'upper'; upper.push(p); }
+    if (s > 1.9) { S = Math.min(S, p.h - 0.45); Object.assign(p, { S, W: 2.5, D: 1.05, kind: 'upper' }); upper.push(p); }
     else if (rp <= POOL.r + 0.8) p.kind = 'pool';
-    else if (s <= 1.9 && rp > POOL.r + 0.8 && p.x > POOL.x) p.kind = 'fall';
+    else if (p.x > POOL.x) p.kind = 'fall';
     else p.kind = 'lower';
   }
-  run = POOL.level + 0.25;
-  for (const p of pts) if (p.kind === 'lower') { run = Math.min(run, p.h + 0.15); p.bed = run; lower.push(p); }
+  const lowerAll = pts.filter(p => p.kind === 'lower');
+  S = POOL.level;
+  lowerAll.forEach((p, i) => {
+    const f = i / Math.max(1, lowerAll.length - 1);
+    S = Math.min(S, p.h - 0.55);
+    Object.assign(p, { S, W: lerp(3.4, 6.4, Math.pow(f, 0.8)), D: lerp(1.65, 2.3, f) }); lower.push(p);
+  });
+  for (const list of [upper, lower]) for (let i = 0; i < list.length; i++) {
+    const a = list[Math.max(0, i - 2)], b = list[Math.min(list.length - 1, i + 2)];
+    const run = Math.max(1, Math.hypot(b.x - a.x, b.z - a.z));
+    list[i].slope = Math.max(0, a.S - b.S) / run;
+    list[i].speed = clamp(0.95 + list[i].slope * 26, 0.85, 5);
+  }
   STREAM.upper = upper; STREAM.lower = lower; STREAM.all = pts;
   STREAM.lip = upper[upper.length - 1];
-  const near = nearestOnPath(pts, 11); STREAM.near = near;
-  near.forEach(({ d, p, t }, k) => {
-    const A = pts[p], B = pts[Math.min(p + 1, pts.length - 1)];
-    const kind = t < 0.5 ? A.kind : B.kind;
-    if (kind !== 'upper' && kind !== 'lower') return;
-    const bed = (A.bed ?? B.bed) + ((B.bed ?? A.bed) - (A.bed ?? B.bed)) * t;
-    const bank = bed + 0.2 + Math.max(0, d - 2.2) * 0.42 - 0.85 * (1 - smoothstep(1.0, 2.8, d));
-    H[k] = lerp(H[k], Math.min(H[k], bank), 1 - smoothstep(7, 11, d));
-  });
+  SPRING.x = upper[0].x; SPRING.z = upper[0].z; SPRING.level = upper[0].S;
+  STREAM.near = nearestOnPath(pts, 19);
+  forGrid(SPRING.x - 12, SPRING.z - 12, SPRING.x + 12, SPRING.z + 12, (k) => { if (!STREAM.near.has(k)) STREAM.near.set(k, { d: 0, p: 0, t: 0 }); });
+  STREAM.near.forEach((v, k) => { const x = T.min + (k % T.n) * T.cell, z = T.min + Math.floor(k / T.n) * T.cell; H[k] = riverGround(x, z, H[k]); });
   // 3) tide pools in the rock shelf of the eastern shore
   let tx = 200; while (tx < 600 && groundHeight(tx, -40) > 0.9) tx += 1;
   PLACES.tide = { x: tx - 3, z: -40, r: 30, name: 'The Tide Pools', sub: 'Eastern shore' };
@@ -750,8 +802,11 @@ function carveFeatures() {
       if (r < 1) H[k] = Math.min(H[k], -0.45 + 0.6 * r * r);
     });
   }
-  // 4) worn trail from the beach to the summit
+  // 4) worn trail from the beach to the summit (it crosses the river on a footbridge)
   TRAIL.pts = smoothPath(TRAIL_CTRL, 2);
+  let cross = null;
+  for (let i = 0; i < TRAIL.pts.length; i++) { const p = TRAIL.pts[i], q = riverQuery(p.x, p.z); if (q && q.kind === 'lower' && (!cross || q.d < cross.q.d)) cross = { p, q, i }; }
+  STREAM.crossing = cross;
   TRAIL.near = nearestOnPath(TRAIL.pts, 4.5);
   TRAIL.near.forEach(({ d }, k) => { if (H[k] > 1.5) H[k] -= 0.12 * (1 - smoothstep(0.8, 2.4, d)); });
 }
@@ -830,6 +885,123 @@ async function buildTerrainData(progress) {
   progress(0.58); await nextFrame();
 }
 
+// one material for the coarse island and for the fine "living sand" chunks laid over it
+function makeTerrainMaterial(tile) {
+  const m = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0 });
+  if (tile) { m.defines = { SAND_TILE: '' }; m.side = THREE.DoubleSide; m.polygonOffset = true; m.polygonOffsetFactor = -1; m.polygonOffsetUnits = -2; }
+  return patch(m, {
+    key: tile ? 'terrainTile' : 'terrain',
+    uniforms: SAND.uniforms,
+    vHead: `attribute vec4 aMask; varying vec4 vMask; varying vec3 vNrmW; varying float vDig;
+      #ifdef SAND_TILE
+      attribute float aDig;
+      #endif`,
+    vEnd: `vMask = aMask; vNrmW = normal;
+      #ifdef SAND_TILE
+      vDig = aDig;
+      #else
+      vDig = 0.0;
+      #endif`,
+    fHead: /* glsl */`varying vec4 vMask; varying vec3 vNrmW; varying float vDig;
+      uniform sampler2D uTileLook; uniform highp sampler2DArray uCarve; uniform vec4 uSandGrid;
+      float hash12t(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+      float carveAt(vec2 p, out float meshFlag){
+        vec2 tc = (p - uSandGrid.x) / uSandGrid.y;
+        vec4 lk = texture2D(uTileLook, (floor(tc) + 0.5) / uSandGrid.z);
+        meshFlag = lk.g;
+        float slot = floor(lk.r * 255.0 + 0.5) - 1.0;
+        return slot < 0.0 ? 0.0 : textureLod(uCarve, vec3(fract(tc), slot), 0.0).r;
+      }
+      // derivative bump mapping with heights in metres (Mikkelsen)
+      vec3 bumpN(vec3 sp, vec3 sn, float h){
+        vec3 sx = dFdx(sp), sy = dFdy(sp);
+        vec3 r1 = cross(sy, sn), r2 = cross(sn, sx);
+        float det = dot(sx, r1);
+        vec3 grad = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2);
+        return normalize(abs(det) * sn - grad);
+      }`,
+    fColor: /* glsl */`
+      vec3 wp = vWPos;
+      float meshFlag; float carve = carveAt(wp.xz, meshFlag);
+      #ifndef SAND_TILE
+      if (meshFlag > 0.5) discard;
+      #endif
+      vec4 nA = texture2D(uNoiseTex, wp.xz * 0.013);
+      vec4 nB = texture2D(uNoiseTex, wp.xz * 0.071);
+      vec4 nC = texture2D(uNoiseTex, wp.xz * 0.43);
+      vec4 nD = texture2D(uNoiseTex, wp.xz * 1.9);
+      vec4 nE = texture2D(uNoiseTex, wp.xz * 7.3);
+      float camD = length(wp - cameraPosition);
+      float nearF = 1.0 - smoothstep(5.0, 26.0, camD);
+      float slope = 1.0 - clamp(vNrmW.y, 0.0, 1.0);
+      float under = smoothstep(0.25, -0.7, wp.y);
+      float rockW = max(vMask.b, smoothstep(0.34, 0.58, slope + (nB.r - 0.5) * 0.22));
+      float sandW = max(vMask.r, under * (1.0 - rockW));
+      sandW = smoothstep(0.3, 0.7, clamp(sandW + (nB.g - 0.5) * 0.55 * (1.0 - under), 0.0, 1.0));
+      float dug = smoothstep(0.02, 0.2, -vDig);
+      sandW = max(sandW, dug * (1.0 - rockW));
+      // wet sand: darkest where the last wave reached, drying as the water drains away
+      float psiW = uTime / 8.5 + surfOff(wp.xz); float nW = floor(psiW); float gW = psiW - nW;
+      float reach = uSurfTable[int(mod(nW, 16.0))] * uSurfAmp + 0.05;
+      float sheen = exp(-gW * 2.6);
+      float tWet = smoothstep(reach + 0.06, reach - 0.06, wp.y) * (0.55 + 0.45 * sheen);
+      tWet = max(tWet, smoothstep(0.85, 0.08, wp.y) * 0.55);
+      tWet = max(tWet * (1.0 - under), max(uWet * 0.8, dug * 0.75));
+      // sand: patches of whiter and warmer grains, darker coarse grains, the odd shell fragment
+      vec3 cSand = mix(vec3(0.62, 0.53, 0.37), vec3(0.67, 0.6, 0.46), smoothstep(0.35, 0.7, nA.r));
+      cSand *= 0.9 + 0.14 * nB.b + 0.08 * nC.a;
+      cSand *= 0.93 + 0.14 * nE.a * nearF;
+      cSand = mix(cSand, vec3(0.42, 0.36, 0.28), smoothstep(0.82, 0.95, nE.r) * 0.5 * nearF);
+      float shellF = step(0.991, hash12t(floor(wp.xz * 24.0))) * (1.0 - under) * nearF;
+      cSand = mix(cSand, vec3(0.86, 0.8, 0.74), shellF * 0.85);
+      vec3 cGrass = mix(vec3(0.16, 0.29, 0.07), vec3(0.32, 0.40, 0.12), nA.r) * (0.78 + 0.42 * nB.g);
+      vec3 cJungle = mix(vec3(0.10, 0.13, 0.05), vec3(0.19, 0.16, 0.08), nB.r) * (0.8 + 0.4 * nC.g);
+      vec3 cRock = mix(vec3(0.34, 0.32, 0.29), vec3(0.19, 0.18, 0.17), nB.b) * (0.82 + 0.3 * nC.r) * (0.9 + 0.1 * sin(wp.y * 2.3 + nA.g * 5.0));
+      cRock = mix(cRock, vec3(0.15, 0.22, 0.08), smoothstep(0.55, 0.85, vNrmW.y) * smoothstep(6.0, 14.0, wp.y) * 0.6);
+      vec3 cPath = vec3(0.40, 0.31, 0.21) * (0.85 + 0.3 * nC.a);
+      vec3 col = mix(mix(cGrass, cJungle, vMask.g), cSand, sandW);
+      col = mix(col, cPath, vMask.a * (1.0 - sandW * 0.6));
+      col = mix(col, cRock, rockW);
+      // the line of washed-up seaweed and twigs at the top of the waves' reach
+      float wr = smoothstep(0.1, 0.0, abs(wp.y - (1.12 + (nA.r - 0.5) * 0.35))) * smoothstep(0.66, 0.8, nD.g) * smoothstep(0.35, 0.6, nC.g) * sandW * (1.0 - under);
+      col = mix(col, vec3(0.16, 0.13, 0.08), wr * 0.6);
+      // seagrass and reef shadow patches seen through the water
+      float sgN = texture2D(uNoiseTex, wp.xz * 0.0031 + 0.37).r * 0.6 + nA.g * 0.4;
+      float sg = smoothstep(0.58, 0.68, sgN) * smoothstep(1.2, 3.0, -wp.y) * (1.0 - smoothstep(9.0, 14.0, -wp.y));
+      col = mix(col, vec3(0.10, 0.16, 0.06), sg * 0.75);
+      // freshly dug sand is damp and darker, grooves you draw are shaded and moist
+      col = mix(col, col * vec3(0.74, 0.68, 0.6), dug);
+      col *= 1.0 - carve * 0.4 * sandW;
+      col *= mix(1.0, mix(0.78, 0.6, sandW), tWet);
+      col *= mix(1.0, 0.86, under);
+      diffuseColor.rgb = col;
+      // fine relief for the bump pass: wind ripples on dry sand, wave ripples under water, grains, carving
+      vec2 rdir = vec2(0.924, 0.383);
+      float warp = nA.g * 9.0 + nB.r * 3.0;
+      float rWind = sin(dot(wp.xz, rdir) * 33.0 + warp * 3.0) * (0.6 + 0.4 * nC.b);
+      float rWave = sin(dot(wp.xz, vec2(-rdir.y, rdir.x)) * 16.0 + warp * 2.0);
+      float hDetail = sandW * nearF * (rWind * 0.0035 * (1.0 - tWet) * (1.0 - under) + rWave * 0.006 * under)
+                    + (nD.a * 0.004 + nE.a * 0.0015) * nearF * (1.0 - rockW * 0.5) + nC.r * 0.02 * rockW * nearF
+                    - carve * 0.065;
+    `,
+    fRough: 'roughnessFactor = mix(mix(0.96, 0.86, rockW), 0.2, tWet * (0.45 + 0.55 * sheen));',
+    fNormal: 'normal = bumpN(-vViewPosition, normal, hDetail);',
+    fLight: /* glsl */`
+      {
+        vec3 Vw = normalize(cameraPosition - vWPos);
+        vec3 Nw = normalize(vNrmW);
+        // grains of sand catching the sun
+        vec2 gc = floor(vWPos.xz * 70.0);
+        float gl = step(0.9935, hash12t(gc)) * sandW * (1.0 - tWet) * (1.0 - under) * (1.0 - smoothstep(3.0, 14.0, camD));
+        vec3 gn = normalize(Nw + vec3(hash12t(gc + 3.1) - 0.5, 0.0, hash12t(gc + 7.7) - 0.5) * 0.7);
+        outgoingLight += uSunLin * gl * pow(max(dot(reflect(-Vw, gn), uLightDir), 0.0), 40.0) * 1.8;
+        // wet sand mirrors the sky as the water drains away
+        float fr = 0.03 + 0.97 * pow(1.0 - max(dot(Nw, Vw), 0.0), 5.0);
+        vec3 sk = pow(skyHaze(reflect(-Vw, Nw)), vec3(2.2));
+        outgoingLight += sk * fr * tWet * (0.25 + 0.75 * sheen) * 0.6 * sandW * (1.0 - under);
+      }`,
+  });
+}
 function buildTerrainMesh() {
   const n = T.n, c = T.cell;
   const pos = new Float32Array(n * n * 3);
@@ -852,52 +1024,7 @@ function buildTerrainMesh() {
   geo.setAttribute('aMask', new THREE.BufferAttribute(T.mask, 4, true));
   geo.setIndex(new THREE.BufferAttribute(idx.subarray(0, q), 1));
   geo.computeBoundingSphere();
-  const mat = patch(new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0 }), {
-    key: 'terrain',
-    vHead: 'attribute vec4 aMask; varying vec4 vMask; varying vec3 vNrmW;',
-    vEnd: 'vMask = aMask; vNrmW = normal;',
-    fHead: 'varying vec4 vMask; varying vec3 vNrmW;',
-    fColor: /* glsl */`
-      vec3 wp = vWPos;
-      vec4 nA = texture2D(uNoiseTex, wp.xz * 0.013);
-      vec4 nB = texture2D(uNoiseTex, wp.xz * 0.071);
-      vec4 nC = texture2D(uNoiseTex, wp.xz * 0.43);
-      float slope = 1.0 - clamp(vNrmW.y, 0.0, 1.0);
-      float under = smoothstep(0.25, -0.7, wp.y);
-      float rockW = max(vMask.b, smoothstep(0.34, 0.58, slope + (nB.r - 0.5) * 0.22));
-      float sandW = max(vMask.r, under * (1.0 - rockW));
-      sandW = smoothstep(0.3, 0.7, clamp(sandW + (nB.g - 0.5) * 0.55 * (1.0 - under), 0.0, 1.0));
-      vec3 cSand = vec3(0.60, 0.50, 0.345) * (0.9 + 0.16 * nB.b + 0.1 * nC.a);
-      float camD = length(wp - cameraPosition);
-      float rip = sin(dot(wp.xz, vec2(0.95, 0.31)) * 2.6 + nA.g * 9.0) * 0.5 + 0.5;
-      cSand *= 0.965 + 0.06 * rip * (0.4 + under) * (1.0 - smoothstep(25.0, 70.0, camD));
-      vec4 nD = texture2D(uNoiseTex, wp.xz * 1.9);
-      cSand *= 0.94 + 0.12 * nD.a * (1.0 - smoothstep(8.0, 30.0, camD));
-      vec3 cGrass = mix(vec3(0.16, 0.29, 0.07), vec3(0.32, 0.40, 0.12), nA.r) * (0.78 + 0.42 * nB.g);
-      vec3 cJungle = mix(vec3(0.10, 0.13, 0.05), vec3(0.19, 0.16, 0.08), nB.r) * (0.8 + 0.4 * nC.g);
-      vec3 cRock = mix(vec3(0.34, 0.32, 0.29), vec3(0.19, 0.18, 0.17), nB.b) * (0.82 + 0.3 * nC.r) * (0.9 + 0.1 * sin(wp.y * 2.3 + nA.g * 5.0));
-      cRock = mix(cRock, vec3(0.15, 0.22, 0.08), smoothstep(0.55, 0.85, vNrmW.y) * smoothstep(6.0, 14.0, wp.y) * 0.6);
-      vec3 cPath = vec3(0.40, 0.31, 0.21) * (0.85 + 0.3 * nC.a);
-      vec3 col = mix(mix(cGrass, cJungle, vMask.g), cSand, sandW);
-      col = mix(col, cPath, vMask.a * (1.0 - sandW * 0.6));
-      col = mix(col, cRock, rockW);
-      // seagrass and reef shadow patches seen through the water
-      float sgN = texture2D(uNoiseTex, wp.xz * 0.0031 + 0.37).r * 0.6 + nA.g * 0.4;
-      float sg = smoothstep(0.58, 0.68, sgN) * smoothstep(1.2, 3.0, -wp.y) * (1.0 - smoothstep(9.0, 14.0, -wp.y));
-      col = mix(col, vec3(0.10, 0.16, 0.06), sg * 0.75);
-      // wet sand: darkest where the last wave reached, drying as the water drains away
-      float psiW = uTime / 8.5 + surfOff(wp.xz); float nW = floor(psiW); float gW = psiW - nW;
-      float reach = uSurfTable[int(mod(nW, 16.0))] * uSurfAmp + 0.05;
-      float sheen = exp(-gW * 2.6);
-      float tWet = smoothstep(reach + 0.06, reach - 0.06, wp.y) * (0.55 + 0.45 * sheen);
-      tWet = max(tWet, smoothstep(0.85, 0.08, wp.y) * 0.55);
-      tWet = max(tWet * (1.0 - under), uWet * 0.8);
-      col *= mix(1.0, mix(0.78, 0.6, sandW), tWet);
-      col *= mix(1.0, 0.86, under);
-      diffuseColor.rgb = col;
-    `,
-    fRough: 'roughnessFactor = mix(mix(0.96, 0.86, rockW), 0.22, tWet * (0.45 + 0.55 * sheen));',
-  });
+  const mat = makeTerrainMaterial(false);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true; mesh.name = 'Island';
   scene.add(mesh);
@@ -1009,7 +1136,7 @@ function buildSky() {
 
 // ───────────────────────────── 8. Water ─────────────────────────────
 const WAVES = [
-  { L: 64, A: 0.30, ang: 0.15 }, { L: 34, A: 0.19, ang: -0.5 }, { L: 18, A: 0.11, ang: 0.72 },
+  { L: 64, A: 0.4, ang: 0.15 }, { L: 34, A: 0.24, ang: -0.5 }, { L: 18, A: 0.12, ang: 0.72 },
   { L: 9.6, A: 0.055, ang: -1.1 }, { L: 5.3, A: 0.03, ang: 1.35 }, { L: 3.2, A: 0.016, ang: -0.25 },
 ];
 for (const w of WAVES) { w.k = TAU / w.L; w.c = Math.sqrt(9.8 / w.k); w.dx = Math.cos(w.ang); w.dz = Math.sin(w.ang); w.steep = w.A * w.k; }
@@ -1118,9 +1245,14 @@ function buildOcean() {
         float g, amp, g2, a2;
         float s0 = surfAt(p, depth, g, amp);
         float e = 0.8;
-        float sx = surfAt(p + vec2(e, 0.0), uLevel - terrainH(p + vec2(e, 0.0)), g2, a2);
-        float sz = surfAt(p + vec2(0.0, e), uLevel - terrainH(p + vec2(0.0, e)), g2, a2);
+        float h1 = terrainH(p + vec2(e, 0.0)), h2 = terrainH(p + vec2(0.0, e));
+        float sx = surfAt(p + vec2(e, 0.0), uLevel - h1, g2, a2);
+        float sz = surfAt(p + vec2(0.0, e), uLevel - h2, g2, a2);
         disp.y += s0; tg.y += (sx - s0) / e; bn.y += (sz - s0) / e;
+        // breaking crests lean toward the beach before they spill
+        vec2 shore = normalize(vec2(h1 - h0, h2 - h0) + vec2(1e-5));
+        float lipK = s0 / max(surfShape(g), 0.05);
+        disp.xz += shore * lipK * smoothstep(0.86, 0.97, g) * (1.0 - smoothstep(0.97, 1.0, g)) * 0.9 * smoothstep(0.3, 1.2, depth);
         vec3 wp = vec3(p.x, uLevel, p.y) + disp;
         vWPos = wp; vN = normalize(cross(bn, tg)); vCrest = disp.y;
         gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
@@ -1200,37 +1332,46 @@ function buildOcean() {
   return ocean;
 }
 
-// freshwater surfaces share the look but have no surf: the waterfall pool and the stream
-function freshMaterial(extraUniforms, flowing) {
+// freshwater surfaces: the pools (flat, with ripples from the falls or the spring) and the river (flowing)
+function freshMaterial(flowing) {
   return new THREE.ShaderMaterial({
-    uniforms: { ...U, ...WATER, ...extraUniforms },
+    uniforms: { ...U, ...WATER, uRipple: { value: new THREE.Vector3(0, 0, 0) } },
     vertexShader: /* glsl */`
       ${COMMON}
-      attribute float aFlow; attribute float aFoam;
-      varying vec3 vWPos; varying vec3 vN; varying float vCrest; varying vec2 vUv; varying float vFlow; varying float vFoamA;
+      attribute float aFlow; attribute float aFoam; attribute vec3 aRiv;
+      varying vec3 vWPos; varying vec3 vN; varying float vCrest; varying vec2 vUv; varying float vFlow; varying float vFoamA; varying vec3 vRiv;
       void main(){
         vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWPos = wp.xyz; vN = vec3(0.0, 1.0, 0.0); vCrest = 0.0; vUv = uv; vFlow = aFlow; vFoamA = aFoam;
+        ${flowing ? 'wp.y += sin(wp.x * 0.9 + uTime * 2.1) * sin(wp.z * 0.8 - uTime * 1.7) * 0.025 * (0.4 + aFoam);' : ''}
+        vWPos = wp.xyz; vN = vec3(0.0, 1.0, 0.0); vCrest = 0.0; vUv = uv; vFlow = aFlow; vFoamA = aFoam; vRiv = aRiv;
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
     fragmentShader: /* glsl */`
       ${COMMON}
       ${WATER_FRAG_COMMON}
-      varying vec2 vUv; varying float vFlow; varying float vFoamA;
+      uniform vec3 uRipple;
+      varying vec2 vUv; varying float vFlow; varying float vFoamA; varying vec3 vRiv;
       void main(){
         vec3 toCam = cameraPosition - vWPos; float dist = length(toCam); vec3 V = toCam / dist;
-        float hT = terrainH(vWPos.xz);
-        float thick = vWPos.y - hT;
-        vec2 fuv = ${flowing ? 'vec2(vUv.x * 0.6, vUv.y - uTime * (0.6 + vFlow * 2.5))' : 'vWPos.xz * 0.12 + uTime * vec2(0.01, 0.013)'};
+        ${flowing ? `
+        float rd = abs(vRiv.x), W = vRiv.y, Dp = vRiv.z;
+        float bed = rd < W ? -Dp * pow(max(1.0 - (rd / W) * (rd / W), 0.0), 0.8) : (rd - W) * 0.55;
+        float thick = -bed;
+        float spd = 0.5 + vFlow * 4.0;
+        vec2 fuv = vec2(vUv.x * 0.9, vUv.y - uTime * spd * 0.22);
+        vec2 fuv2 = vec2(vUv.x * 1.7 + 0.3, vUv.y * 1.6 - uTime * spd * 0.31);` : `
+        float thick = vWPos.y - terrainH(vWPos.xz);
+        vec2 fuv = vWPos.xz * 0.12 + uTime * vec2(0.01, 0.013), fuv2 = fuv * 2.3 + 0.4 + uTime * 0.02;`}
         vec3 n1 = texture2D(uNormTex, fuv).xyz * 2.0 - 1.0;
-        vec3 n2 = texture2D(uNormTex, fuv * 2.3 + 0.4 + uTime * 0.02).xyz * 2.0 - 1.0;
-        vec3 N = normalize(vec3((n1.x + n2.x * 0.6) * ${flowing ? '0.55' : '0.22'}, 1.0, (n1.y + n2.y * 0.6) * ${flowing ? '0.55' : '0.22'}));
-        float fall = 0.0;
+        vec3 n2 = texture2D(uNormTex, fuv2).xyz * 2.0 - 1.0;
+        float nk = ${flowing ? '0.5 + vFoamA * 0.6' : '0.22'};
+        vec3 N = normalize(vec3((n1.x + n2.x * 0.7) * nk, 1.0, (n1.y + n2.y * 0.7) * nk));
+        float churn = 0.0;
         ${flowing ? '' : `
-        float dF = length(vWPos.xz - uFallPos);
-        float ringW = sin(dF * 3.2 - uTime * 5.0) * exp(-dF * 0.22);
-        N = normalize(N + vec3((vWPos.x - uFallPos.x), 0.0, (vWPos.z - uFallPos.y)) / (dF + 0.01) * ringW * 0.25);
-        fall = smoothstep(4.5, 0.6, dF);`}
+        float dF = length(vWPos.xz - uRipple.xy);
+        float ringW = sin(dF * 3.2 - uTime * 5.0) * exp(-dF * 0.22) * uRipple.z;
+        N = normalize(N + vec3(vWPos.x - uRipple.x, 0.0, vWPos.z - uRipple.y) / (dF + 0.01) * ringW * 0.28);
+        churn = smoothstep(6.5 * uRipple.z, 0.5, dF) * uRipple.z;`}
         if (uRain > 0.02) N = normalize(N + rainRipple(vWPos.xz) * 0.35 * uRain);
         vec3 col; float alpha;
         if (uUnderwater < 0.5) {
@@ -1240,15 +1381,20 @@ function freshMaterial(extraUniforms, flowing) {
           vec3 refl = skyRefl(R) * 0.85;
           float sp = max(dot(R, uLightDir), 0.0);
           float path = max(thick, 0.0) / max(V.y, 0.15);
-          float Tr = exp(-path * 0.28);
-          vec3 body = mix(vec3(0.20, 0.52, 0.42), vec3(0.04, 0.22, 0.20), smoothstep(0.3, 2.5, thick)) * uWaterLight;
+          float Tr = exp(-path * 0.32);
+          vec3 body = mix(vec3(0.17, 0.46, 0.38), vec3(0.03, 0.17, 0.16), smoothstep(0.3, 2.5, thick)) * uWaterLight;
           float pat = texture2D(uNoiseTex, vWPos.xz * 0.3 + vec2(0.0, uTime * 0.25)).a;
-          float foam = clamp(fall * smoothstep(0.3, 0.7, pat) + vFoamA * smoothstep(0.35, 0.65, texture2D(uNoiseTex, fuv * 0.7).a), 0.0, 0.9);
+          float pat2 = texture2D(uNoiseTex, fuv * 0.7).a;
+          ${flowing ? `float strk = texture2D(uNoiseTex, vec2(vUv.x * 2.6, vUv.y * 0.22 - uTime * spd * 0.09)).a * 0.6 + texture2D(uNoiseTex, vec2(vUv.x * 5.1 + 0.3, vUv.y * 0.5 - uTime * spd * 0.14)).g * 0.5;
+          float foam = vFoamA * smoothstep(0.5, 0.82, strk) * 0.85;
+          foam += smoothstep(0.3, 0.0, thick) * smoothstep(0.55, 0.8, pat2) * 0.5;
+          foam += smoothstep(0.7, 0.88, strk) * vFlow * 0.2;` : 'float foam = churn * smoothstep(0.25, 0.7, pat);'}
+          foam = clamp(foam, 0.0, 0.92);
           vec3 spec = uSpecCol * (pow(sp, 500.0) * 3.5 + pow(sp, 60.0) * 0.15) * (1.0 - foam);
           col = body * (1.0 - Tr) * (1.0 - F) + refl * F + spec;
           alpha = 1.0 - Tr * (1.0 - F);
           col = mix(col, uFoamCol, foam); alpha = mix(alpha, 1.0, foam);
-          float edge = smoothstep(0.0, 0.05, thick) * ${flowing ? 'smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x)' : '1.0'};
+          float edge = smoothstep(0.0, 0.06, thick);
           col *= edge; alpha *= edge;
           col = applyFog(col, vWPos, 1.0);
         } else {
@@ -1261,95 +1407,110 @@ function freshMaterial(extraUniforms, flowing) {
     blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
   });
 }
-
+function poolDisk(x, y, z, r, ripple) {
+  const g = new THREE.CircleGeometry(r, 56).rotateX(-Math.PI / 2);
+  const n = g.attributes.position.count;
+  g.setAttribute('aFlow', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
+  g.setAttribute('aFoam', new THREE.Float32BufferAttribute(new Float32Array(n), 1));
+  g.setAttribute('aRiv', new THREE.Float32BufferAttribute(new Float32Array(n * 3), 3));
+  const m = new THREE.Mesh(g, freshMaterial(false));
+  m.material.uniforms.uRipple.value.copy(ripple);
+  m.position.set(x, y, z); m.renderOrder = 6; scene.add(m); return m;
+}
+function riverRibbon(pts) {
+  const ACROSS = 9, P = [], UV = [], FL = [], FO = [], RV = [], I = [];
+  let v = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (i > 0) v += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) / 6;
+    const nx = -p.tz, nz = p.tx, half = p.W + 0.9;
+    for (let k = 0; k < ACROSS; k++) {
+      const u = k / (ACROSS - 1), off = (u - 0.5) * 2 * half;
+      P.push(p.x + nx * off, p.S, p.z + nz * off);
+      UV.push(u, v); RV.push(off, p.W, p.D);
+      FL.push(clamp((p.speed - 0.55) / 4, 0, 1)); FO.push(smoothstep(0.03, 0.12, p.slope));
+    }
+    if (i > 0) { const a = (i - 1) * ACROSS; for (let k = 0; k < ACROSS - 1; k++) I.push(a + k, a + k + ACROSS, a + k + 1, a + k + 1, a + k + ACROSS, a + k + ACROSS + 1); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2));
+  g.setAttribute('aFlow', new THREE.Float32BufferAttribute(FL, 1));
+  g.setAttribute('aFoam', new THREE.Float32BufferAttribute(FO, 1));
+  g.setAttribute('aRiv', new THREE.Float32BufferAttribute(RV, 3));
+  g.setIndex(I); g.computeBoundingSphere();
+  const m = new THREE.Mesh(g, freshMaterial(true)); m.renderOrder = 6; scene.add(m); return m;
+}
 function buildFreshwater() {
-  // pool disk
-  const pg = new THREE.CircleGeometry(POOL.r + 1.2, 48).rotateX(-Math.PI / 2);
-  pg.setAttribute('aFlow', new THREE.Float32BufferAttribute(new Float32Array(pg.attributes.position.count), 1));
-  pg.setAttribute('aFoam', new THREE.Float32BufferAttribute(new Float32Array(pg.attributes.position.count), 1));
-  const pool = new THREE.Mesh(pg, freshMaterial({}, false));
-  pool.position.set(POOL.x, POOL.level, POOL.z); pool.renderOrder = 6; scene.add(pool);
-  // stream ribbons
-  const ribbon = (pts, halfW) => {
-    const P = [], UV = [], FL = [], FO = [], I = [];
-    let v = 0;
-    for (let i = 0; i < pts.length; i++) {
-      const p = pts[i];
-      const y = p.bed - 0.25;
-      const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(pts.length - 1, i + 1)];
-      const drop = Math.max(0, (prev.bed - next.bed)) / Math.max(0.5, Math.hypot(next.x - prev.x, next.z - prev.z));
-      const nx = -p.tz, nz = p.tx;
-      const w = halfW * (0.85 + 0.3 * Noise.n2(p.x * 0.05, p.z * 0.05));
-      P.push(p.x + nx * w, y, p.z + nz * w, p.x - nx * w, y, p.z - nz * w);
-      if (i > 0) v += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) / 5;
-      UV.push(0, v, 1, v);
-      const fl = clamp(drop * 6, 0, 1); FL.push(fl, fl);
-      const fo = smoothstep(0.08, 0.3, drop); FO.push(fo, fo);
-      if (i > 0) { const a = (i - 1) * 2; I.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2));
-    g.setAttribute('aFlow', new THREE.Float32BufferAttribute(FL, 1));
-    g.setAttribute('aFoam', new THREE.Float32BufferAttribute(FO, 1));
-    g.setIndex(I); g.computeBoundingSphere();
-    const m = new THREE.Mesh(g, freshMaterial({}, true)); m.renderOrder = 6; scene.add(m); return m;
-  };
-  const lowerVisible = STREAM.lower.filter(p => p.bed - 0.25 > 0.05);
-  if (STREAM.upper.length > 2) ribbon(STREAM.upper, 1.7);
-  if (lowerVisible.length > 2) ribbon(lowerVisible, 2.3);
-  STREAM.mouth = lowerVisible[lowerVisible.length - 1];
-  // waterfall: a curved falling sheet from the lip into the pool
   const lip = STREAM.lip;
-  const topY = lip.bed - 0.25, botY = POOL.level;
+  const topY = lip.S, botY = POOL.level;
   const dirX = -WF.nx, dirZ = -WF.nz;
-  const fallLen = Math.hypot(POOL.x + WF.nx * (POOL.r * 0.55) - lip.x, POOL.z - lip.z);
-  const segV = 28, segU = 8, width = 3.4;
-  const P = [], UV = [], I = [];
-  for (let iv = 0; iv <= segV; iv++) {
-    const t = iv / segV;
-    const out = 0.4 + fallLen * 0.55 * Math.pow(t, 0.6);
-    const y = topY + 0.05 - (topY - botY + 0.15) * (t * t * 0.75 + t * 0.25);
-    for (let iu = 0; iu <= segU; iu++) {
-      const u = iu / segU, side = (u - 0.5) * width * (1 + t * 0.35);
-      P.push(lip.x + dirX * out - dirZ * side, y, lip.z + dirZ * out + dirX * side);
-      UV.push(u, t * (topY - botY) / 3.0);
+  const fallLen = Math.hypot(POOL.x + WF.nx * (POOL.r * 0.5) - lip.x, POOL.z - lip.z);
+  const endOut = 0.3 + fallLen * 0.55;
+  const endX = lip.x + dirX * endOut, endZ = lip.z + dirZ * endOut;
+  poolDisk(POOL.x, POOL.level, POOL.z, POOL.r + 1.4, new THREE.Vector3(endX, endZ, 1));
+  poolDisk(SPRING.x, SPRING.level, SPRING.z, SPRING.r + 0.8, new THREE.Vector3(SPRING.x, SPRING.z, 0.45));
+  STREAM.ribbons = [];
+  if (STREAM.upper.length > 2) STREAM.ribbons.push(riverRibbon(STREAM.upper));
+  const lowerVisible = STREAM.lower.filter(p => p.S > 0.04);
+  if (lowerVisible.length > 2) STREAM.ribbons.push(riverRibbon(lowerVisible));
+  STREAM.mouth = lowerVisible[lowerVisible.length - 1];
+  // the falls: a thick, aerated curtain (outer shell + inner core), not a flat sheet
+  const curtain = (scaleW, scaleT, speed, phase) => {
+    const segV = 30, ring = 14, P = [], UV = [], AT = [], NR = [], I = [];
+    for (let iv = 0; iv <= segV; iv++) {
+      const t = iv / segV;
+      const out = 0.3 + fallLen * 0.55 * Math.pow(t, 0.6);
+      const y = topY + 0.05 - (topY - botY + 0.2) * (t * t * 0.75 + t * 0.25);
+      const hw = 2.0 * scaleW * (1 + t * 0.45), ht = (0.28 + 0.75 * t) * scaleT;
+      const cx = lip.x + dirX * out, cz = lip.z + dirZ * out;
+      for (let k = 0; k <= ring; k++) {
+        const a = (k / ring) * TAU, ca = Math.cos(a), sa = Math.sin(a);
+        const side = ca * hw, depth = sa * ht * (1 + 0.25 * Noise.n2(k * 0.7, iv * 0.4 + phase));
+        P.push(cx - dirZ * side + dirX * depth, y, cz + dirX * side + dirZ * depth);
+        NR.push(-dirZ * ca + dirX * sa, 0, dirX * ca + dirZ * sa);
+        UV.push(k / ring, t * (topY - botY) / 2.6); AT.push(t);
+      }
     }
-  }
-  for (let iv = 0; iv < segV; iv++) for (let iu = 0; iu < segU; iu++) {
-    const a = iv * (segU + 1) + iu, b = a + 1, c = a + segU + 1, d = c + 1; I.push(a, c, b, b, c, d);
-  }
-  const fg = new THREE.BufferGeometry();
-  fg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
-  fg.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2));
-  fg.setIndex(I); fg.computeVertexNormals(); fg.computeBoundingSphere();
-  const fmat = new THREE.ShaderMaterial({
-    uniforms: { ...U, ...WATER },
-    vertexShader: `${COMMON}
-      varying vec2 vUv; varying vec3 vWPos;
-      void main(){ vUv = uv; vec4 wp = modelMatrix * vec4(position, 1.0); wp.x += sin(uv.y * 3.0 - uTime * 4.0) * 0.04; vWPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
-    fragmentShader: `${COMMON}
-      uniform vec3 uFoamCol; uniform vec3 uWaterLight;
-      varying vec2 vUv; varying vec3 vWPos;
-      void main(){
-        float s1 = texture2D(uNoiseTex, vec2(vUv.x * 1.3, vUv.y * 0.35 - uTime * 0.9)).a;
-        float s2 = texture2D(uNoiseTex, vec2(vUv.x * 2.7 + 0.3, vUv.y * 0.6 - uTime * 1.35)).g;
-        float streak = smoothstep(0.32, 0.82, s1 * 0.6 + s2 * 0.6);
-        float edge = smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x);
-        float top = smoothstep(0.0, 0.08, vUv.y);
-        vec3 c = mix(vec3(0.42, 0.62, 0.62) * uWaterLight, uFoamCol, 0.35 + streak * 0.65);
-        float a = (0.42 + streak * 0.5) * edge * top;
-        vec3 col = applyFog(c, vWPos, 1.0);
-        gl_FragColor = vec4(col * a, a);
-      }`,
-    transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
-  });
-  const falls = new THREE.Mesh(fg, fmat); falls.renderOrder = 7; scene.add(falls);
-  const endX = lip.x + dirX * (0.4 + fallLen * 0.55), endZ = lip.z + dirZ * (0.4 + fallLen * 0.55);
+    for (let iv = 0; iv < segV; iv++) for (let k = 0; k < ring; k++) { const a = iv * (ring + 1) + k, b = a + 1, c = a + ring + 1, d = c + 1; I.push(a, c, b, b, c, d); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(NR, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2)); g.setAttribute('aT', new THREE.Float32BufferAttribute(AT, 1));
+    g.setIndex(I); g.computeBoundingSphere();
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { ...U, ...WATER, uSpeed: { value: speed }, uPhase: { value: phase } },
+      vertexShader: `${COMMON}
+        attribute float aT; uniform float uPhase; varying vec2 vUv; varying vec3 vWPos; varying vec3 vNw; varying float vT;
+        void main(){ vUv = uv; vT = aT; vNw = normal; vec4 wp = modelMatrix * vec4(position, 1.0);
+          wp.xyz += normal * sin(uv.y * 5.0 - uTime * 6.0 + uv.x * 12.0 + uPhase) * 0.06 * (0.3 + aT);
+          vWPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+      fragmentShader: `${COMMON}
+        uniform vec3 uFoamCol; uniform vec3 uWaterLight; uniform float uSpeed; uniform float uPhase;
+        varying vec2 vUv; varying vec3 vWPos; varying vec3 vNw; varying float vT;
+        void main(){
+          vec3 V = normalize(cameraPosition - vWPos);
+          float fres = 1.0 - abs(dot(normalize(vNw), V));
+          float s1 = texture2D(uNoiseTex, vec2(vUv.x * 2.0 + uPhase, vUv.y * 0.3 - uTime * 1.1 * uSpeed)).a;
+          float s2 = texture2D(uNoiseTex, vec2(vUv.x * 4.3 + 0.3, vUv.y * 0.55 - uTime * 1.7 * uSpeed)).g;
+          float s3 = texture2D(uNoiseTex, vec2(vUv.x * 1.1 + 0.7, vUv.y * 0.12 - uTime * 0.6 * uSpeed)).r;
+          float streak = smoothstep(0.3, 0.85, s1 * 0.5 + s2 * 0.45 + s3 * 0.3);
+          float white = clamp(streak * 0.75 + vT * 0.35 + fres * 0.35, 0.0, 1.0);
+          vec3 c = mix(vec3(0.28, 0.46, 0.46) * uWaterLight, uFoamCol, white);
+          c += uSunLin * 0.02 * pow(max(dot(reflect(-V, normalize(vNw)), uLightDir), 0.0), 20.0);
+          float a = clamp(0.2 + streak * 0.55 + fres * 0.3 + vT * 0.12, 0.0, 0.93) * smoothstep(-0.02, 0.05, vT);
+          vec3 col = applyFog(c, vWPos, 1.0);
+          gl_FragColor = vec4(col * a, a); }`,
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+    });
+    const m = new THREE.Mesh(g, mat); m.renderOrder = 7; scene.add(m); return m;
+  };
+  curtain(1, 1, 1, 0);
+  curtain(0.72, 0.55, 1.35, 3.1);
   WATER.uFallPos.value.set(endX, endZ);
-  STREAM.fall = { x: endX, z: endZ, topY, botY, lipX: lip.x, lipZ: lip.z };
-  PLACES.falls = { x: POOL.x, z: POOL.z, r: 26, name: 'Hidden Falls', sub: `A ${Math.round(topY - botY)} m drop into a jungle pool` };
+  STREAM.fall = { x: endX, z: endZ, topY, botY, lipX: lip.x, lipZ: lip.z, dirX, dirZ, fallLen };
+  PLACES.falls = { x: POOL.x, z: POOL.z, r: 28, name: 'Hidden Falls', sub: `A ${Math.round(topY - botY)} m drop into a jungle pool` };
+  PLACES.spring = { x: SPRING.x, z: SPRING.z, r: 14, name: 'The Spring', sub: 'Where the river begins' };
 }
 
 // ───────────────────────────── 9. Geometry helpers ─────────────────────────────
@@ -1589,7 +1750,7 @@ float gustAt(vec3 ip, float ph){ return 0.55 + 0.45 * sin(uTime * 0.63 + ip.x * 
 const PALM_SWAY = /* glsl */`
   float H = aPalm.x, lean = aPalm.y, ph = aPalm.z;
   vec3 ip = instPos(); vec3 wl = windLocal(); float gust = gustAt(ip, ph);
-  float sway = uWind * (0.010 + 0.026 * gust) * (1.0 + 0.45 * sin(uTime * (0.85 + ph * 0.35) + ph * 6.28));
+  float sway = uWind * (0.022 + 0.05 * gust) * (1.0 + 0.6 * sin(uTime * (0.85 + ph * 0.35) + ph * 6.28)) + uWind * uWind * 0.012;
 `;
 const PALM_TRUNK_VS = PALM_SWAY + /* glsl */`
   float yN = aC > 0.5 ? 1.0 : transformed.y;
@@ -1600,9 +1761,12 @@ const PALM_TRUNK_VS = PALM_SWAY + /* glsl */`
 const PALM_CROWN_VS = PALM_SWAY + /* glsl */`
   float ft = aFrond.x;
   transformed.y -= aPalm.w * ft * ft * 0.9;
-  float fl = sin(uTime * (1.6 + uWind * 1.3) + ph * 9.0 + aFrond.y * 6.28) * (0.05 + 0.1 * gust) * uWind * ft;
+  float fl = sin(uTime * (1.6 + uWind * 1.3) + ph * 9.0 + aFrond.y * 6.28) * (0.13 + 0.22 * gust) * uWind * ft;
   transformed.y += fl;
-  transformed += wl * (fl * 0.7 + uWind * gust * 0.22 * ft * ft);
+  transformed += wl * (fl * 0.8 + uWind * (0.15 + gust * 0.42) * ft * ft);
+  // individual leaflets flicker along each frond
+  float side = (fract(uv.x * 2.0) - 0.25) * 4.0;
+  transformed.y += side * sin(uTime * 7.5 + ph * 13.0 + ft * 7.0 + aFrond.y * 9.0) * 0.07 * uWind * ft * (0.5 + gust);
   transformed += vec3(lean * H, H, 0.0) + wl * sway * H;
 `;
 function palmTrunkGeometry(lo = false) {
@@ -1784,8 +1948,14 @@ function foliageMat(map, key, o = {}) {
   const m = new THREE.MeshLambertMaterial({ map, alphaTest: o.alphaTest ?? 0.42, side: THREE.DoubleSide, vertexColors: !!o.vertexColors });
   if (!isMobile && o.a2c !== false) m.alphaToCoverage = true;
   if (o.fade && o.uniforms) FADE_SETS.push({ u: o.uniforms, mul: o.fadeMul || 1 });
-  return patch(m, { key, vHead: (o.vHead || '') + WIND_HEAD + '', vBegin: o.vBegin, fHead: o.fade ? FADE_HEAD : '', fade: !!o.fade, uniforms: o.uniforms, fog: o.fog, fMap: ALPHA_MIP_FIX });
+  return patch(m, { key, vHead: (o.vHead || '') + WIND_HEAD + '', vBegin: o.vBegin, fHead: o.fade ? FADE_HEAD : '', fade: !!o.fade, uniforms: o.uniforms, fog: o.fog, fMap: ALPHA_MIP_FIX, fLight: LEAF_GLOW });
 }
+// sunlight shining through leaves when you look toward the sun
+const LEAF_GLOW = /* glsl */`
+  { vec3 Vw = normalize(cameraPosition - vWPos);
+    float back = pow(max(dot(-Vw, uLightDir), 0.0), 3.0);
+    outgoingLight += diffuseColor.rgb * vec3(1.0, 1.05, 0.7) * uSunLin * back * 0.32; }
+`;
 // keep thin leaves from dissolving in distant mip levels
 const ALPHA_MIP_FIX = /* glsl */`
 #ifdef USE_MAP
@@ -1858,8 +2028,8 @@ function plantIsland(progress) {
   const TREE_VS = /* glsl */`
     { vec3 ip = instPos(); vec3 wl = windLocal(); float ph = ip.x * 0.11 + ip.z * 0.07; float gust = gustAt(ip, ph);
       float k = pow(max(transformed.y, 0.0) / 10.0, 2.0);
-      transformed += wl * uWind * (0.12 + 0.22 * gust) * k * (1.0 + 0.3 * sin(uTime * 1.1 + ph));
-      transformed += aY * vec3(sin(uTime * 2.7 + transformed.x * 2.0 + ph), sin(uTime * 3.1 + transformed.z * 2.0), cos(uTime * 2.3 + transformed.y)) * 0.05 * uWind * (0.5 + gust); }
+      transformed += wl * uWind * (0.2 + 0.38 * gust) * k * (1.0 + 0.4 * sin(uTime * 1.1 + ph));
+      transformed += aY * vec3(sin(uTime * 2.7 + transformed.x * 2.0 + ph), sin(uTime * 3.1 + transformed.z * 2.0), cos(uTime * 2.3 + transformed.y)) * 0.09 * uWind * (0.5 + gust); }
   `;
   const barkMat = patch(new THREE.MeshLambertMaterial({ vertexColors: true }), { key: 'bark', vHead: 'attribute float aY;\n' + WIND_HEAD, vBegin: TREE_VS });
   const canopyMat = foliageMat(texCluster, 'canopy', { vHead: 'attribute float aY;\n', vBegin: TREE_VS, vertexColors: true });
@@ -1888,11 +2058,11 @@ function plantIsland(progress) {
   progress(0.7);
 
   // --- understory ---
-  const bushMat = foliageMat(texBush, 'bush', { vHead: 'attribute float aY;\n' + FADE_HEAD, vBegin: SWAY_SMALL(0.06, 1.9), fade: true, fadeMul: 1.35, uniforms: fadeUniforms(90, 25) });
-  const fernMat = foliageMat(texFern, 'fern', { vHead: 'attribute float aY;\n' + FADE_HEAD, vBegin: SWAY_SMALL(0.08, 2.3), fade: true, fadeMul: 1.35, uniforms: fadeUniforms(90, 25) });
-  const grassMat = foliageMat(texGrass, 'grass', { vHead: FADE_HEAD + 'float aY = 1.0;\n', vBegin: SWAY_SMALL(0.12, 2.2), fade: true, uniforms: fadeUniforms(70, 25), alphaTest: 0.5 });
-  const bigMat = foliageMat(texBig, 'bigleaf', { vHead: 'attribute float aY;\n' + FADE_HEAD, vBegin: SWAY_SMALL(0.07, 1.6), fade: true, fadeMul: 1.35, uniforms: fadeUniforms(90, 25), vertexColors: true });
-  const flowerMat = foliageMat(texFlower, 'flower', { vHead: 'attribute float aY;\n' + FADE_HEAD, vBegin: SWAY_SMALL(0.05, 2.0), fade: true, uniforms: fadeUniforms(70, 20), alphaTest: 0.5 });
+  const bushMat = foliageMat(texBush, 'bush', { vHead: 'attribute float aY;\n' + FADE_HEAD, vBegin: SWAY_SMALL(0.11, 1.9), fade: true, fadeMul: 1.35, uniforms: fadeUniforms(90, 25) });
+  const fernMat = foliageMat(texFern, 'fern', { vHead: 'attribute float aY;\n' + FADE_HEAD, vBegin: SWAY_SMALL(0.15, 2.3), fade: true, fadeMul: 1.35, uniforms: fadeUniforms(90, 25) });
+  const grassMat = foliageMat(texGrass, 'grass', { vHead: FADE_HEAD + 'float aY = 1.0;\n', vBegin: SWAY_SMALL(0.22, 2.2), fade: true, uniforms: fadeUniforms(70, 25), alphaTest: 0.5 });
+  const bigMat = foliageMat(texBig, 'bigleaf', { vHead: 'attribute float aY;\n' + FADE_HEAD, vBegin: SWAY_SMALL(0.13, 1.6), fade: true, fadeMul: 1.35, uniforms: fadeUniforms(90, 25), vertexColors: true });
+  const flowerMat = foliageMat(texFlower, 'flower', { vHead: 'attribute float aY;\n' + FADE_HEAD, vBegin: SWAY_SMALL(0.09, 2.0), fade: true, uniforms: fadeUniforms(70, 20), alphaTest: 0.5 });
   const deadMat = foliageMat(texDead, 'deadleaf', { vHead: FADE_HEAD + 'float aY = 0.0;\n', vBegin: '', fade: true, fadeMul: 0.7, uniforms: fadeUniforms(50, 15), alphaTest: 0.5 });
   VEG.fadeMats = [[bushMat, 1.35], [fernMat, 1.35], [grassMat, 1], [bigMat, 1.35], [flowerMat, 1], [deadMat, 0.7]];
   const bushes = new Field('bushes', bushGeometry(), bushMat, { chunk: 110, far: 90, nearMul: 1.35, pad: 3 });
@@ -1967,6 +2137,500 @@ function applyVegetationQuality() {
   for (const s of FADE_SETS) { const far = Q.near * s.mul; s.u.uFadeStart.value = far * 0.72; s.u.uFadeLen.value = far * 0.28; }
 }
 
+// ───────────────────── 24. Living sand ─────────────────────
+// Wherever something happens to the ground, the island is refined in 32 m chunks at
+// 0.5 m resolution: the river channel (shaped once at load), holes and channels you dig,
+// and the water that flows through them (a small shallow-water simulation fed by the
+// river, the sea and groundwater, which also erodes the sand). Footprints and writing
+// go into a finer 9 cm carve texture. Waves wash all of it away near the sea.
+const SAND = {
+  CS: 0.5, N: 64, TS: 32, O: -912, GRID: 57, CARVE: 448, SLOTS: 28,
+  chunks: new Map(), list: [], count: 0, active: [], tick: 0, simAcc: 0,
+  lookData: null, lookTex: null, carveData: null, carveTex: null, slots: [], carveDirty: new Set(), lookDirty: false,
+  uniforms: null, tileMat: null, waterMat: null,
+};
+const SN = SAND.N, SP = SAND.N + 2;
+const chunkKey = (cx, cz) => cx * 1024 + cz;
+SAND.uniforms = { uTileLook: { value: null }, uCarve: { value: null }, uSandGrid: { value: new THREE.Vector4(SAND.O, SAND.TS, SAND.GRID, SAND.CARVE) } };
+function initSand() {
+  const G = SAND.GRID;
+  SAND.lookData = new Uint8Array(G * G * 4);
+  SAND.lookTex = new THREE.DataTexture(SAND.lookData, G, G, THREE.RGBAFormat, THREE.UnsignedByteType);
+  SAND.lookTex.magFilter = SAND.lookTex.minFilter = THREE.NearestFilter; SAND.lookTex.generateMipmaps = false; SAND.lookTex.needsUpdate = true;
+  SAND.carveData = new Uint8Array(SAND.CARVE * SAND.CARVE * SAND.SLOTS);
+  const ct = new THREE.DataArrayTexture(SAND.carveData, SAND.CARVE, SAND.CARVE, SAND.SLOTS);
+  ct.format = THREE.RedFormat; ct.type = THREE.UnsignedByteType; ct.magFilter = ct.minFilter = THREE.LinearFilter; ct.generateMipmaps = false;
+  ct.wrapS = ct.wrapT = THREE.ClampToEdgeWrapping; ct.needsUpdate = true;
+  SAND.carveTex = ct;
+  SAND.uniforms.uTileLook.value = SAND.lookTex; SAND.uniforms.uCarve.value = ct;
+  SAND.slots = new Array(SAND.SLOTS).fill(null);
+}
+function getChunk(cx, cz, create = false) {
+  const k = chunkKey(cx, cz);
+  let c = SAND.chunks.get(k);
+  if (!c && create && cx >= 0 && cz >= 0 && cx < SAND.GRID && cz < SAND.GRID) c = makeChunk(cx, cz);
+  return c || null;
+}
+function chunkAt(x, z, create = false) { return getChunk(Math.floor((x - SAND.O) / SAND.TS), Math.floor((z - SAND.O) / SAND.TS), create); }
+function makeChunk(cx, cz) {
+  const N = SN, x0 = SAND.O + cx * SAND.TS, z0 = SAND.O + cz * SAND.TS;
+  const c = {
+    cx, cz, x0, z0, base: new Float32Array(N * N), R: new Float32Array(N * N), G: new Float32Array(N * N),
+    src: new Uint8Array(N * N), lvl: new Float32Array(N * N), touched: new Uint8Array(N * N), nTouched: 0,
+    sim: null, slot: -1, mesh: null, water: null, meshDirty: true, visible: false, hasShape: false, low: false, sea: 0, minBase: 1e9, waterCells: 0,
+  };
+  let shaped = false;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const x = x0 + (i + 0.5) * SAND.CS, z = z0 + (j + 0.5) * SAND.CS, k = j * N + i;
+    const b = baseGround(x, z); c.base[k] = b; c.minBase = Math.min(c.minBase, b);
+    const q = STREAM.all.length ? riverQuery(x, z) : null;
+    const nearSpring = Math.hypot(x - SPRING.x, z - SPRING.z) < SPRING.r + 3;
+    if ((q && q.d < q.W + 14) || nearSpring) {
+      const f = springShape(riverShape(gridSample(T.hPre, x, z), q), x, z);
+      c.R[k] = f - b; if (Math.abs(c.R[k]) > 0.01) shaped = true;
+      if (q && q.d < q.W + 0.3 && q.S > 0.04) { c.src[k] = 1; c.lvl[k] = q.S; }
+    }
+    if (nearSpring && Math.hypot(x - SPRING.x, z - SPRING.z) < SPRING.r) { c.src[k] = 1; c.lvl[k] = SPRING.level; }
+    if (b < 0.3 && c.src[k] === 0) c.src[k] = 2;
+  }
+  c.hasShape = shaped; c.low = c.minBase < 2.2;
+  SAND.chunks.set(chunkKey(cx, cz), c); SAND.list.push(c); SAND.count++;
+  return c;
+}
+// height change at global cell (gi, gj)
+function cellDelta(gi, gj) {
+  if (gi < 0 || gj < 0) return 0;
+  const c = SAND.chunks.get(chunkKey(gi >> 6, gj >> 6)); if (!c) return 0;
+  const k = (gj & 63) * 64 + (gi & 63); return c.R[k] + c.G[k];
+}
+function sandDelta(x, z) {
+  const gx = (x - SAND.O) / SAND.CS - 0.5, gz = (z - SAND.O) / SAND.CS - 0.5;
+  const i = Math.floor(gx), j = Math.floor(gz), tx = gx - i, tz = gz - j;
+  const a = cellDelta(i, j), b = cellDelta(i + 1, j), c = cellDelta(i, j + 1), d = cellDelta(i + 1, j + 1);
+  return a + (b - a) * tx + (c - a) * tz + (a - b - c + d) * tx * tz;
+}
+// water standing in something you dug (not the sea, not the river itself)
+function sandWaterAt(x, z) {
+  const c = chunkAt(x, z); if (!c || !c.sim) return null;
+  const i = clamp(Math.floor((x - c.x0) / SAND.CS), 0, SN - 1), j = clamp(Math.floor((z - c.z0) / SAND.CS), 0, SN - 1);
+  const k = j * SN + i, pi = (j + 1) * SP + i + 1, w = c.sim.w[pi];
+  if (w < 0.03 || c.src[k] === 1) return null;
+  return { level: c.sim.b[pi] + w, depth: w, vx: c.sim.vx[k], vz: c.sim.vz[k] };
+}
+
+// ---- simulation ----
+function activateSim(c) {
+  if (c.sim) return;
+  const N = SN, P = SP;
+  c.sim = { b: new Float32Array(P * P), w: new Float32Array(P * P), fE: new Float32Array(N * N), fW: new Float32Array(N * N), fS: new Float32Array(N * N), fN: new Float32Array(N * N),
+    inW: new Float32Array(N), inE: new Float32Array(N), inN: new Float32Array(N), inS: new Float32Array(N), vx: new Float32Array(N * N), vz: new Float32Array(N * N), tick: -1 };
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const k = j * N + i, pi = (j + 1) * P + i + 1; c.sim.b[pi] = c.base[k] + c.R[k] + c.G[k]; if (c.src[k] === 1 && c.lvl[k] > c.sim.b[pi]) c.sim.w[pi] = c.lvl[k] - c.sim.b[pi]; }
+}
+function touchCell(c, k) { if (!c.touched[k]) { c.touched[k] = 1; c.nTouched++; } }
+function neighbourCell(c, dx, dz, i, j) { // b and w of the cell beside chunk c's edge
+  const n = getChunk(c.cx + dx, c.cz + dz);
+  if (!n) return null;
+  const ii = (i + SN) % SN, jj = (j + SN) % SN, k = jj * SN + ii;
+  if (n.sim) { const pi = (jj + 1) * SP + ii + 1; return [n.sim.b[pi], n.sim.w[pi]]; }
+  const b = n.base[k] + n.R[k] + n.G[k];
+  return [b, n.src[k] === 1 && n.lvl[k] > b ? n.lvl[k] - b : 0];
+}
+function fillHalo(c) {
+  const B = c.sim.b, Wt = c.sim.w, N = SN, P = SP;
+  for (let j = 0; j < N; j++) {
+    let v = neighbourCell(c, -1, 0, N - 1, j); B[(j + 1) * P] = v ? v[0] : 1e4; Wt[(j + 1) * P] = v ? v[1] : 0;
+    v = neighbourCell(c, 1, 0, 0, j); B[(j + 1) * P + N + 1] = v ? v[0] : 1e4; Wt[(j + 1) * P + N + 1] = v ? v[1] : 0;
+  }
+  for (let i = 0; i < N; i++) {
+    let v = neighbourCell(c, 0, -1, i, N - 1); B[i + 1] = v ? v[0] : 1e4; Wt[i + 1] = v ? v[1] : 0;
+    v = neighbourCell(c, 0, 1, i, 0); B[(N + 1) * P + i + 1] = v ? v[0] : 1e4; Wt[(N + 1) * P + i + 1] = v ? v[1] : 0;
+  }
+}
+function fluxPass(c, dt) {
+  const s = c.sim, B = s.b, Wt = s.w, N = SN, P = SP, L = SAND.CS, k = dt * 9.8 * L;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const pi = (j + 1) * P + i + 1, ci = j * N + i, wc = Wt[pi];
+    if (wc <= 1e-5) { s.fE[ci] = s.fW[ci] = s.fS[ci] = s.fN[ci] = 0; continue; }
+    const h = B[pi] + wc;
+    let e = Math.max(0, s.fE[ci] * 0.99 + k * (h - B[pi + 1] - Wt[pi + 1]));
+    let w = Math.max(0, s.fW[ci] * 0.99 + k * (h - B[pi - 1] - Wt[pi - 1]));
+    let so = Math.max(0, s.fS[ci] * 0.99 + k * (h - B[pi + P] - Wt[pi + P]));
+    let no = Math.max(0, s.fN[ci] * 0.99 + k * (h - B[pi - P] - Wt[pi - P]));
+    const sum = e + w + so + no;
+    if (sum > 0) { const K = Math.min(1, (wc * L * L) / (sum * dt)); e *= K; w *= K; so *= K; no *= K; }
+    s.fE[ci] = e; s.fW[ci] = w; s.fS[ci] = so; s.fN[ci] = no;
+  }
+}
+function fluxHalo(c) {
+  const s = c.sim, N = SN, tick = SAND.tick;
+  const W = getChunk(c.cx - 1, c.cz), E = getChunk(c.cx + 1, c.cz), Nn = getChunk(c.cx, c.cz - 1), S = getChunk(c.cx, c.cz + 1);
+  for (let j = 0; j < N; j++) { s.inW[j] = W && W.sim && W.sim.tick === tick ? W.sim.fE[j * N + N - 1] : 0; s.inE[j] = E && E.sim && E.sim.tick === tick ? E.sim.fW[j * N] : 0; }
+  for (let i = 0; i < N; i++) { s.inN[i] = Nn && Nn.sim && Nn.sim.tick === tick ? Nn.sim.fS[(N - 1) * N + i] : 0; s.inS[i] = S && S.sim && S.sim.tick === tick ? S.sim.fN[i] : 0; }
+}
+function waterPass(c, dt, rain) {
+  const s = c.sim, B = s.b, Wt = s.w, N = SN, P = SP, L2 = SAND.CS * SAND.CS, sea = c.sea;
+  let wet = 0;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const pi = (j + 1) * P + i + 1, ci = j * N + i;
+    const inW = i > 0 ? s.fE[ci - 1] : s.inW[j], inE = i < N - 1 ? s.fW[ci + 1] : s.inE[j];
+    const inN = j > 0 ? s.fS[ci - N] : s.inN[i], inS = j < N - 1 ? s.fN[ci + N] : s.inS[i];
+    const out = s.fE[ci] + s.fW[ci] + s.fS[ci] + s.fN[ci];
+    const w0 = Wt[pi];
+    let w = w0 + (dt * (inW + inE + inN + inS - out)) / L2;
+    const davg = Math.max(0.03, (w0 + w) * 0.5);
+    s.vx[ci] = (inW - s.fW[ci] + s.fE[ci] - inE) / (2 * SAND.CS * davg);
+    s.vz[ci] = (inN - s.fN[ci] + s.fS[ci] - inS) / (2 * SAND.CS * davg);
+    const b = B[pi], src = c.src[ci];
+    if (src === 1 && c.lvl[ci] > b) w = c.lvl[ci] - b;                // the river keeps its level
+    else if (src === 2 && sea > b) w = Math.max(w, sea - b);         // the sea pours in on each wave
+    if (b < 0.06 && c.low) w += Math.max(0, 0.06 - b - w) * 0.25 * dt; // holes near the sea fill with groundwater
+    w = Math.max(0, w + rain * 0.002 * dt - dt * (b > 0.6 ? 0.004 : 0.0012));
+    Wt[pi] = w; if (w > 0.01) wet++;
+  }
+  c.waterCells = wet;
+}
+function erodePass(c, dt) {
+  const s = c.sim, B = s.b, Wt = s.w, N = SN, P = SP, L = SAND.CS;
+  let changed = false;
+  for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+    const ci = j * N + i; if (!c.touched[ci]) continue;
+    const pi = (j + 1) * P + i + 1;
+    // running water cuts into the sand
+    const w = Wt[pi];
+    if (w > 0.01 && c.src[ci] !== 1) {
+      const sp = Math.hypot(s.vx[ci], s.vz[ci]);
+      if (sp > 0.28 && c.G[ci] > -2.6) { const e = Math.min(0.02, 0.016 * (sp - 0.28) * dt); c.G[ci] -= e; B[pi] -= e; changed = true; touchCell(c, ci + 1); touchCell(c, ci - 1); touchCell(c, ci + N); touchCell(c, ci - N); }
+    }
+    // loose sand slumps until it reaches its angle of repose
+    for (let q = 0; q < 4; q++) {
+      const di = q === 0 ? 1 : q === 1 ? N : q === 2 ? -1 : -N, dp = q === 0 ? 1 : q === 1 ? P : q === 2 ? -1 : -P;
+      const cj = ci + di, pj = pi + dp;
+      if (q >= 2 && c.touched[cj]) continue; // that pair is handled from the other side
+      const d = B[pi] - B[pj], lim = (w > 0.01 || Wt[pj] > 0.01 ? 0.5 : 0.72) * L;
+      if (Math.abs(d) > lim) {
+        const m = (Math.abs(d) - lim) * 0.22;
+        if (d > 0) { c.G[ci] -= m; c.G[cj] += m; B[pi] -= m; B[pj] += m; } else { c.G[ci] += m; c.G[cj] -= m; B[pi] += m; B[pj] -= m; }
+        touchCell(c, cj); changed = true;
+      }
+    }
+    // waves running up the beach slowly fill holes and flatten piles in the swash zone
+    if (c.sea > c.base[ci] && c.base[ci] > -0.4 && c.base[ci] < 1.3) { const f = Math.min(1, 0.035 * dt); B[pi] -= c.G[ci] * f; c.G[ci] *= 1 - f; changed = true; }
+  }
+  if (changed) c.meshDirty = true;
+}
+function updateSand(dt, t) {
+  if (!SAND.carveTex) return;
+  const px = P.pos.x, pz = P.pos.z;
+  // which chunks are alive this frame
+  SAND.simAcc += dt;
+  const STEP = 1 / 20;
+  if (SAND.simAcc >= STEP) {
+    SAND.simAcc = Math.min(SAND.simAcc - STEP, STEP);
+    const act = SAND.active; act.length = 0;
+    for (const c of SAND.list) if (c.nTouched > 0 && Math.abs(c.x0 + 16 - px) < 110 && Math.abs(c.z0 + 16 - pz) < 110) { activateSim(c); act.push(c); }
+    if (act.length) {
+      const rain = U.uRain.value;
+      for (let sub = 0; sub < 2; sub++) {
+        SAND.tick++;
+        for (const c of act) { c.sim.tick = SAND.tick; c.sea = c.low ? Math.max(0, surfJS(c.x0 + 16, c.z0 + 16, 0, t)) : -99; fillHalo(c); }
+        for (const c of act) fluxPass(c, STEP / 2);
+        for (const c of act) fluxHalo(c);
+        for (const c of act) waterPass(c, STEP / 2, rain);
+      }
+      for (const c of act) { erodePass(c, STEP); c.waterDirty = true; }
+    }
+  }
+  // meshes near the camera replace the coarse island; far away the coarse one is enough
+  SAND.meshT = (SAND.meshT || 0) - dt;
+  const showR = Q.near * 1.6;
+  let rebuilt = 0;
+  for (const c of SAND.list) {
+    if (!c.hasShape && !c.nTouched) continue;
+    const d = Math.hypot(c.x0 + 16 - camera.position.x, c.z0 + 16 - camera.position.z) - 22;
+    const vis = d < showR;
+    if (vis && (!c.mesh || (c.meshDirty && rebuilt < 2 && SAND.meshT <= 0))) { buildChunkMesh(c); rebuilt++; }
+    if (c.mesh && c.mesh.visible !== vis) { c.mesh.visible = vis; setLook(c); }
+    if (c.waterDirty && c.sim) { updateChunkWater(c, vis); c.waterDirty = false; }
+  }
+  if (rebuilt) SAND.meshT = 0.12;
+  // waves erase footprints and writing; everything else fades over many minutes
+  SAND.washT = (SAND.washT || 0) - dt;
+  if (SAND.washT <= 0) { SAND.washT = 0.3; washCarves(t); }
+  SAND.fadeT = (SAND.fadeT || 0) - dt;
+  if (SAND.fadeT <= 0) { SAND.fadeT = 0.36; fadeCarves(); }
+  if (SAND.carveDirty.size) { for (const s of SAND.carveDirty) SAND.carveTex.addLayerUpdate(s); SAND.carveTex.needsUpdate = true; SAND.carveDirty.clear(); }
+  if (SAND.lookDirty) { SAND.lookTex.needsUpdate = true; SAND.lookDirty = false; }
+}
+function setLook(c) {
+  const o = (c.cz * SAND.GRID + c.cx) * 4;
+  SAND.lookData[o] = c.slot + 1; SAND.lookData[o + 1] = c.mesh && c.mesh.visible ? 255 : 0;
+  SAND.lookDirty = true;
+}
+
+// ---- meshes ----
+function cornerDelta(c, i, j) { // average change of the up-to-four cells around corner (i, j)
+  const gi = c.cx * SN + i, gj = c.cz * SN + j;
+  return (cellDelta(gi - 1, gj - 1) + cellDelta(gi, gj - 1) + cellDelta(gi - 1, gj) + cellDelta(gi, gj)) * 0.25;
+}
+function buildChunkMesh(c) {
+  const N = SN + 1, CS = SAND.CS;
+  const E = 4 * N; // skirt vertices, one per edge vertex
+  if (!c.mesh) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array((N * N + E) * 3), 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array((N * N + E) * 3), 3));
+    const mask = new Uint8Array((N * N + E) * 4);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const m = vIndex(c.x0 + i * CS, c.z0 + j * CS) * 4; mask.set(T.mask.subarray(m, m + 4), (j * N + i) * 4); }
+    c.edge = [];
+    for (let i = 0; i < N; i++) c.edge.push(i, (N - 1) * N + i);
+    for (let j = 0; j < N; j++) c.edge.push(j * N, j * N + N - 1);
+    c.edge.forEach((k, e) => mask.set(mask.subarray(k * 4, k * 4 + 4), (N * N + e) * 4));
+    g.setAttribute('aMask', new THREE.BufferAttribute(mask, 4, true));
+    g.setAttribute('aDig', new THREE.BufferAttribute(new Float32Array(N * N + E), 1));
+    const idx = new Uint16Array(SN * SN * 6 + 4 * SN * 6); let q = 0;
+    for (let j = 0; j < SN; j++) for (let i = 0; i < SN; i++) { const a = j * N + i, b = a + 1, cc = a + N, d = cc + 1; idx[q++] = a; idx[q++] = cc; idx[q++] = b; idx[q++] = b; idx[q++] = cc; idx[q++] = d; }
+    const side = (list) => { for (let t = 0; t < list.length - 1; t++) { const a = list[t], b = list[t + 1], as = N * N + c.edge.indexOf(a), bs = N * N + c.edge.indexOf(b); idx[q++] = a; idx[q++] = as; idx[q++] = b; idx[q++] = b; idx[q++] = as; idx[q++] = bs; } };
+    const top = [], bot = [], lft = [], rgt = [];
+    for (let i = 0; i < N; i++) { top.push(i); bot.push((N - 1) * N + i); }
+    for (let j = 0; j < N; j++) { lft.push(j * N); rgt.push(j * N + N - 1); }
+    side(top); side(bot); side(lft); side(rgt);
+    g.attributes.position.setUsage(THREE.DynamicDrawUsage);
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    c.mesh = new THREE.Mesh(g, SAND.tileMat); c.mesh.receiveShadow = true; c.mesh.name = 'sandChunk';
+    c.heights = new Float32Array(N * N);
+    scene.add(c.mesh);
+  }
+  const g = c.mesh.geometry, pos = g.attributes.position.array, nor = g.attributes.normal.array, dig = g.attributes.aDig.array, H = c.heights;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const k = j * N + i;
+    const x = c.x0 + i * CS + (i === 0 ? -0.5 : i === N - 1 ? 0.5 : 0), z = c.z0 + j * CS + (j === 0 ? -0.5 : j === N - 1 ? 0.5 : 0);
+    const dlt = (i === 0 || j === 0 || i === N - 1 || j === N - 1) ? sandDelta(x, z) : cornerDelta(c, i, j);
+    H[k] = baseGround(x, z) + dlt;
+    pos[k * 3] = x; pos[k * 3 + 1] = H[k]; pos[k * 3 + 2] = z;
+    const gi = Math.min(SN - 1, i), gj = Math.min(SN - 1, j);
+    dig[k] = c.G[gj * SN + gi];
+  }
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const k = j * N + i;
+    const hl = H[j * N + Math.max(0, i - 1)], hr = H[j * N + Math.min(N - 1, i + 1)], hd = H[Math.max(0, j - 1) * N + i], hu = H[Math.min(N - 1, j + 1) * N + i];
+    const sx = (i > 0 && i < N - 1) ? 2 : 1, sz = (j > 0 && j < N - 1) ? 2 : 1;
+    let nx = (hl - hr) / (sx * CS), nz = (hd - hu) / (sz * CS); const l = Math.hypot(nx, 1, nz);
+    nor[k * 3] = nx / l; nor[k * 3 + 1] = 1 / l; nor[k * 3 + 2] = nz / l;
+  }
+  c.edge.forEach((k, e) => { const o = (N * N + e) * 3; pos[o] = pos[k * 3]; pos[o + 1] = pos[k * 3 + 1] - 0.6; pos[o + 2] = pos[k * 3 + 2]; nor[o] = nor[k * 3]; nor[o + 1] = nor[k * 3 + 1]; nor[o + 2] = nor[k * 3 + 2]; dig[N * N + e] = dig[k]; });
+  g.attributes.position.needsUpdate = g.attributes.normal.needsUpdate = g.attributes.aDig.needsUpdate = true;
+  g.computeBoundingSphere();
+  c.meshDirty = false;
+  setLook(c);
+}
+function updateChunkWater(c, vis) {
+  const s = c.sim, N = SN + 1, CS = SAND.CS;
+  let any = false;
+  for (let k = 0; k < SN * SN; k++) { const pi = (Math.floor(k / SN) + 1) * SP + (k % SN) + 1; if (s.w[pi] > 0.006 && c.src[k] !== 1 && (c.base[k] > 0.15 || c.G[k] < -0.05)) { any = true; break; } }
+  if (!any) { if (c.water) c.water.visible = false; return; }
+  if (!c.water) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * N * 3), 3));
+    g.setAttribute('aW', new THREE.BufferAttribute(new Float32Array(N * N), 1));
+    g.setAttribute('aVel', new THREE.BufferAttribute(new Float32Array(N * N * 2), 2));
+    const idx = new Uint16Array(SN * SN * 6); let q = 0;
+    for (let j = 0; j < SN; j++) for (let i = 0; i < SN; i++) { const a = j * N + i, b = a + 1, cc = a + N, d = cc + 1; idx[q++] = a; idx[q++] = cc; idx[q++] = b; idx[q++] = b; idx[q++] = cc; idx[q++] = d; }
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    c.water = new THREE.Mesh(g, SAND.waterMat); c.water.renderOrder = 6; c.water.frustumCulled = false; scene.add(c.water);
+  }
+  const g = c.water.geometry, pos = g.attributes.position.array, aw = g.attributes.aW.array, av = g.attributes.aVel.array;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const k = j * N + i;
+    let sh = 0, nWet = 0, sw = 0, nShow = 0, svx = 0, svz = 0, n = 0, sb = 0;
+    for (let dj = -1; dj <= 0; dj++) for (let di = -1; di <= 0; di++) {
+      const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= SN || jj >= SN) continue;
+      const ck = jj * SN + ii, pi = (jj + 1) * SP + ii + 1, w = s.w[pi];
+      sb += s.b[pi]; n++;
+      if (w > 0.006) { sh += s.b[pi] + w; nWet++; svx += s.vx[ck]; svz += s.vz[ck]; }
+      if (w > 0.006 && c.src[ck] !== 1 && (c.base[ck] > 0.15 || c.G[ck] < -0.05)) { sw += w; nShow++; }
+    }
+    pos[k * 3] = c.x0 + i * CS; pos[k * 3 + 2] = c.z0 + j * CS;
+    if (nWet) { pos[k * 3 + 1] = sh / nWet; aw[k] = nShow ? (sw / nShow) * (nShow / n) : 0; av[k * 2] = svx / nWet; av[k * 2 + 1] = svz / nWet; }
+    else { pos[k * 3 + 1] = sb / Math.max(1, n) - 0.08; aw[k] = 0; av[k * 2] = av[k * 2 + 1] = 0; }
+  }
+  g.attributes.position.needsUpdate = g.attributes.aW.needsUpdate = g.attributes.aVel.needsUpdate = true;
+  c.water.visible = vis;
+}
+function makeSandWaterMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { ...U, ...WATER },
+    vertexShader: `${COMMON}
+      attribute float aW; attribute vec2 aVel; varying vec3 vWPos; varying float vW; varying vec2 vVel;
+      void main(){ vW = aW; vVel = aVel; vec4 wp = modelMatrix * vec4(position, 1.0); vWPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
+    fragmentShader: `${COMMON}
+      uniform sampler2D uNormTex; uniform vec3 uSpecCol; uniform vec3 uWaterLight; uniform vec3 uFoamCol;
+      varying vec3 vWPos; varying float vW; varying vec2 vVel;
+      vec3 skyR(vec3 R){ float yy = max(R.y, 0.0); return mix(uSkyHorizon, uSkyZenith, pow(yy, 0.5)); }
+      void main(){
+        if (vW < 0.004) discard;
+        vec3 toCam = cameraPosition - vWPos; float dist = length(toCam); vec3 V = toCam / dist;
+        float sp = length(vVel);
+        // two-phase flow mapping so the surface streams in the direction the water moves
+        float ph0 = fract(uTime * 0.5), ph1 = fract(uTime * 0.5 + 0.5);
+        vec2 fl = vVel * 0.5;
+        vec3 na = texture2D(uNormTex, vWPos.xz * 0.35 - fl * ph0).xyz * 2.0 - 1.0;
+        vec3 nb = texture2D(uNormTex, vWPos.xz * 0.35 + 0.5 - fl * ph1).xyz * 2.0 - 1.0;
+        float bl = abs(ph0 - 0.5) * 2.0;
+        vec3 nn = mix(na, nb, bl);
+        vec3 N = normalize(vec3(nn.x * (0.25 + sp * 0.3), 1.0, nn.y * (0.25 + sp * 0.3)));
+        float F = 0.02 + 0.98 * pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
+        vec3 R = reflect(-V, N); R.y = abs(R.y);
+        float Tr = exp(-vW / max(V.y, 0.15) * 0.6);
+        vec3 body = vec3(0.32, 0.36, 0.28) * uWaterLight;
+        float foamN = texture2D(uNoiseTex, vWPos.xz * 0.7 - fl * ph0).a;
+        float foam = smoothstep(0.7, 1.6, sp) * smoothstep(0.45, 0.7, foamN) + smoothstep(0.06, 0.0, vW) * 0.3;
+        vec3 spec = uSpecCol * pow(max(dot(R, uLightDir), 0.0), 400.0) * 3.0;
+        vec3 col = body * (1.0 - Tr) * (1.0 - F) + skyR(R) * F + spec;
+        float a = 1.0 - Tr * (1.0 - F);
+        col = mix(col, uFoamCol, foam * 0.8); a = mix(a, 1.0, foam * 0.8);
+        float edge = smoothstep(0.004, 0.03, vW); col *= edge; a *= edge;
+        col = applyFog(col, vWPos, 1.0);
+        gl_FragColor = vec4(col, a); }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+  });
+}
+
+// ---- carving: footprints and writing ----
+function ensureSlot(c) {
+  if (c.slot >= 0) return c.slot;
+  let s = SAND.slots.indexOf(null);
+  if (s < 0) { // reuse the slot of the chunk farthest from you
+    let far = -1, fs = 0;
+    SAND.slots.forEach((o, i) => { const d = Math.hypot(o.x0 - P.pos.x, o.z0 - P.pos.z); if (d > far) { far = d; fs = i; } });
+    const old = SAND.slots[fs]; old.slot = -1; setLook(old); s = fs;
+  }
+  SAND.slots[s] = c; c.slot = s;
+  SAND.carveData.fill(0, s * SAND.CARVE * SAND.CARVE, (s + 1) * SAND.CARVE * SAND.CARVE);
+  SAND.carveDirty.add(s); setLook(c);
+  return s;
+}
+// paint into the carve layer: fn(worldX, worldZ, current) → new value (0..255)
+function carveRegion(x0, z0, x1, z1, fn) {
+  const R = SAND.CARVE, tex = SAND.TS / R;
+  for (let cz = Math.floor((z0 - SAND.O) / SAND.TS); cz <= Math.floor((z1 - SAND.O) / SAND.TS); cz++)
+    for (let cx = Math.floor((x0 - SAND.O) / SAND.TS); cx <= Math.floor((x1 - SAND.O) / SAND.TS); cx++) {
+      const c = getChunk(cx, cz, true); if (!c) continue;
+      const s = ensureSlot(c), off = s * R * R;
+      const i0 = clamp(Math.floor((x0 - c.x0) / tex), 0, R - 1), i1 = clamp(Math.ceil((x1 - c.x0) / tex), 0, R - 1);
+      const j0 = clamp(Math.floor((z0 - c.z0) / tex), 0, R - 1), j1 = clamp(Math.ceil((z1 - c.z0) / tex), 0, R - 1);
+      let hit = false;
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+        const o = off + j * R + i, v = fn(c.x0 + (i + 0.5) * tex, c.z0 + (j + 0.5) * tex, SAND.carveData[o]);
+        if (v !== SAND.carveData[o]) { SAND.carveData[o] = v; hit = true; }
+      }
+      if (hit) SAND.carveDirty.add(s);
+    }
+}
+function carveStroke(ax, az, bx, bz, radius = 0.085, depth = 1.0) {
+  const ex = bx - ax, ez = bz - az, el = ex * ex + ez * ez || 1e-6;
+  carveRegion(Math.min(ax, bx) - radius, Math.min(az, bz) - radius, Math.max(ax, bx) + radius, Math.max(az, bz) + radius, (x, z, cur) => {
+    const t = clamp(((x - ax) * ex + (z - az) * ez) / el, 0, 1), d = Math.hypot(x - ax - ex * t, z - az - ez * t);
+    const v = depth * (1 - smoothstep(radius * 0.35, radius, d)) * 255;
+    return v > cur ? Math.round(v) : cur;
+  });
+}
+function stampFoot(x, z, yaw, left) {
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw), side = left ? -1 : 1;
+  const el = (u, v, cu, cv, au, av) => ((u - cu) / au) ** 2 + ((v - cv) / av) ** 2;
+  carveRegion(x - 0.2, z - 0.2, x + 0.2, z + 0.2, (px, pz, cur) => {
+    const dx = px - x, dz = pz - z, u = dx * fx + dz * fz, v = (dx * rx + dz * rz) * side;
+    let e = Math.min(el(u, v, -0.085, 0, 0.05, 0.042), el(u, v, 0.03, 0.006, 0.065, 0.05), el(u, v, -0.03, 0.018, 0.06, 0.03));
+    for (let t = 0; t < 5; t++) e = Math.min(e, el(u, v, 0.11 - Math.abs(t - 1) * 0.008, -0.03 + t * 0.016, 0.014, 0.011 - t * 0.001));
+    const val = (1 - smoothstep(0.55, 1.0, e)) * 0.58 * 255;
+    return val > cur ? Math.round(val) : cur;
+  });
+}
+function washCarves(t) {
+  const R = SAND.CARVE, step = SN / R;
+  for (const c of SAND.slots) {
+    if (!c || !c.low) continue;
+    if (Math.abs(c.x0 + 16 - P.pos.x) > 160 || Math.abs(c.z0 + 16 - P.pos.z) > 160) continue;
+    const sea = Math.max(0, surfJS(c.x0 + 16, c.z0 + 16, 0, t)) + 0.03;
+    const off = c.slot * R * R; let hit = false;
+    for (let j = 0; j < R; j++) {
+      const cj = Math.min(SN - 1, Math.floor(j * step));
+      for (let i = 0; i < R; i++) {
+        const o = off + j * R + i; if (!SAND.carveData[o]) continue;
+        const ck = cj * SN + Math.min(SN - 1, Math.floor(i * step));
+        if (c.base[ck] + c.R[ck] + c.G[ck] < sea) { SAND.carveData[o] = SAND.carveData[o] * 0.72 | 0; hit = true; }
+      }
+    }
+    if (hit) SAND.carveDirty.add(c.slot);
+  }
+}
+// one slot at a time, so the cost is spread out; each slot fades a step about every 10 s
+let fadeSlot = 0;
+function fadeCarves() {
+  const R = SAND.CARVE, c = SAND.slots[fadeSlot]; fadeSlot = (fadeSlot + 1) % SAND.SLOTS;
+  if (!c) return;
+  const off = c.slot * R * R; let any = false;
+  for (let o = off; o < off + R * R; o++) if (SAND.carveData[o]) { SAND.carveData[o]--; any = true; }
+  if (any) SAND.carveDirty.add(c.slot);
+}
+
+// ---- digging ----
+const DIG = { radius: 0.62, depth: 0.26 };
+function canDig(x, z) {
+  const m = maskAt(x, z), b = baseGround(x, z);
+  if (m[2] > 0.55 || slopeAt(x, z) > 0.55) return 'rock';
+  if (b < -0.6) return 'deep';
+  for (const p of PLATFORMS) { const dx = x - p.x, dz = z - p.z, c = Math.cos(p.rot), s = Math.sin(p.rot); if (Math.abs(dx * c - dz * s) < p.hx + 0.3 && Math.abs(dx * s + dz * c) < p.hz + 0.3) return 'wood'; }
+  let blocked = false; COLLIDERS.query(x, z, 2, c => { if (Math.hypot(c.x - x, c.z - z) < c.r + 0.5) blocked = true; });
+  return blocked ? 'blocked' : null;
+}
+// one scoop of the shovel: a hole at (x, z), the sand tossed to (tx, tz)
+function digAt(x, z, tx, tz) {
+  const r = DIG.radius;
+  let removed = 0;
+  const apply = (cx, cz, fn) => {
+    for (let gz = Math.floor((cz - 1.2 - SAND.O) / SAND.CS); gz <= Math.floor((cz + 1.2 - SAND.O) / SAND.CS); gz++)
+      for (let gx = Math.floor((cx - 1.2 - SAND.O) / SAND.CS); gx <= Math.floor((cx + 1.2 - SAND.O) / SAND.CS); gx++) {
+        const c = getChunk(gx >> 6, gz >> 6, true); if (!c) continue;
+        const k = (gz & 63) * SN + (gx & 63);
+        const wx = SAND.O + (gx + 0.5) * SAND.CS, wz = SAND.O + (gz + 0.5) * SAND.CS;
+        const d = fn(c, k, Math.hypot(wx - cx, wz - cz));
+        if (d) { touchCell(c, k); c.meshDirty = true; activateSim(c); c.sim.b[((k / SN | 0) + 1) * SP + (k % SN) + 1] = c.base[k] + c.R[k] + c.G[k]; }
+      }
+  };
+  apply(x, z, (c, k, d) => {
+    if (d > r) return false;
+    const want = DIG.depth * Math.pow(1 - (d / r) ** 2, 1.3);
+    const floor = Math.max(-2.4, -1.6 - c.base[k] * 0.0);
+    const cut = Math.min(want, c.base[k] + c.R[k] + c.G[k] - Math.max(-1.6, c.base[k] - 2.4));
+    if (cut <= 0) return false;
+    c.G[k] -= cut; removed += cut; return true;
+  });
+  if (tx !== undefined && removed > 0) {
+    const pile = removed * 0.7, pr = 1.0; let norm = 0;
+    apply(tx, tz, (c, k, d) => { if (d > pr) return false; norm += Math.pow(1 - (d / pr) ** 2, 1.5); return false; });
+    apply(tx, tz, (c, k, d) => { if (d > pr || !norm) return false; c.G[k] += pile * Math.pow(1 - (d / pr) ** 2, 1.5) / norm; return true; });
+  }
+  // digging wipes out any writing or footprints under the shovel
+  carveRegion(x - r, z - r, x + r, z + r, (px, pz, cur) => (Math.hypot(px - x, pz - z) < r ? 0 : cur));
+  return removed;
+}
+// river chunks are shaped at load so the channel is smooth up close
+function buildRiverChunks() {
+  initSand();
+  SAND.tileMat = makeTerrainMaterial(true);
+  SAND.waterMat = makeSandWaterMaterial();
+  const want = new Set();
+  for (const p of STREAM.all) {
+    const W = (p.W || 3) + 14;
+    for (let z = p.z - W; z <= p.z + W; z += 8) for (let x = p.x - W; x <= p.x + W; x += 8) want.add(chunkKey(Math.floor((x - SAND.O) / SAND.TS), Math.floor((z - SAND.O) / SAND.TS)));
+  }
+  for (let z = SPRING.z - 8; z <= SPRING.z + 8; z += 4) for (let x = SPRING.x - 8; x <= SPRING.x + 8; x += 4) want.add(chunkKey(Math.floor((x - SAND.O) / SAND.TS), Math.floor((z - SAND.O) / SAND.TS)));
+  for (const k of want) { const cx = Math.floor(k / 1024), cz = k % 1024; if (!SAND.chunks.has(k)) makeChunk(cx, cz); }
+  // chunks that turned out flat don't need to exist
+  for (const c of [...SAND.list]) if (!c.hasShape) { SAND.chunks.delete(chunkKey(c.cx, c.cz)); SAND.list.splice(SAND.list.indexOf(c), 1); SAND.count--; }
+}
+
 // ───────────────────── 14. Places: where things are on the island ─────────────────────
 function findAlong(x0, z0, dx, dz, test, maxD = 900, step = 0.5) {
   for (let d = 0; d < maxD; d += step) { const x = x0 + dx * d, z = z0 + dz * d; if (test(groundHeight(x, z), x, z)) return { x, z, d }; }
@@ -2006,7 +2670,14 @@ function layoutPlaces() {
   LAYOUT.sign = at(-11, 5);
   // the dock, north along the beach
   const dockBase = at(-14, 52);
-  const dsd = seaDir(dockBase.x, dockBase.z);
+  // point the dock at the deepest water nearby, not just along the local coastline
+  let dsd = seaDir(dockBase.x, dockBase.z), deepest = 1e9;
+  for (let a = 0; a < 36; a++) {
+    const ang = a / 36 * TAU, dx = Math.cos(ang), dz = Math.sin(ang);
+    if (dx * dsd.x + dz * dsd.z < 0.2) continue;
+    let h = 0; for (const d of [30, 45, 60]) h += groundHeight(dockBase.x + dx * d, dockBase.z + dz * d);
+    if (h < deepest) { deepest = h; dsd = { x: dx, z: dz }; }
+  }
   const ds = findAlong(dockBase.x, dockBase.z, dsd.x, dsd.z, h => h < 1.05, 200, 0.25);
   LAYOUT.dock = { x: ds.x, z: ds.z, dir: dsd, len: 42, top: 1.15 };
   for (let d = -4; d < 50; d += 5) EXCLUDE.push({ x: ds.x + dsd.x * d, z: ds.z + dsd.z * d, r: 5 });
@@ -2045,6 +2716,8 @@ function layoutPlaces() {
   LAYOUT.coralGarden = { x: cg.x + F.x * 20, z: cg.z + F.z * 20 };
   PLACES.reef = { x: LAYOUT.coralGarden.x, z: LAYOUT.coralGarden.z, r: 45, under: true, name: 'Coral Garden', sub: 'Just off the main beach' };
   PLACES.beach = { x: SPAWN.x, z: SPAWN.z, r: 0.01, name: '', sub: '' }; visited.add('beach');
+  if (STREAM.crossing) { const { p, q } = STREAM.crossing; for (let d = -q.W - 5; d <= q.W + 5; d += 3) EXCLUDE.push({ x: p.x - q.tz * d, z: p.z + q.tx * d, r: 3 }); }
+  { const st = STREAM.lower[2] || STREAM.lower[0]; EXCLUDE.push({ x: st.x, z: st.z, r: 6 }); }
 }
 
 // ───────────────────── 15. Prop building blocks ─────────────────────
@@ -2162,6 +2835,47 @@ function rowboatGeometry() {
   P.push(bx(0.05, 0.05, 2.2, C.woodPale, 0.32, 0.12, 0.2, 0, 0.12), bx(0.05, 0.05, 2.2, C.woodPale, -0.3, 0.12, 0.25, 0, -0.1));
   return P;
 }
+// a small open motorboat: V hull (bow toward local -z), console with windscreen, outboard at the stern
+function motorboatGeometry() {
+  const N = 18, pos = [], col = [], idx = [];
+  const sec = t => { // t = 0 stern … 1 bow
+    const b = 1.0 * (t < 0.55 ? 1 : Math.pow(Math.cos(((t - 0.55) / 0.45) * Math.PI / 2), 0.75)) + 0.02;
+    const yg = 0.98 + 0.28 * t * t, yk = 0.05 + 0.42 * Math.pow(t, 1.6);
+    return [[-b, yg], [-0.86 * b, yk + 0.27], [0, yk], [0.86 * b, yk + 0.27], [b, yg]];
+  };
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, z = 2.6 - t * 5.2, s = sec(t);
+    for (let k = 0; k < 5; k++) {
+      const [x, y] = s[k]; pos.push(x, y, z);
+      const c = y > 0.86 + 0.2 * t * t ? C.navy : y < 0.3 + 0.1 * t ? [0.62, 0.14, 0.1] : [0.93, 0.93, 0.9];
+      col.push(...c);
+    }
+  }
+  for (let i = 0; i < N; i++) for (let k = 0; k < 4; k++) { const a = i * 5 + k, b = a + 1, c = a + 5, d = c + 1; idx.push(a, c, b, b, c, d); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  const hull = g.toNonIndexed(); hull.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(hull.attributes.position.count * 2), 2));
+  const P = [hull];
+  P.push(bx(1.86, 0.06, 4.3, [0.82, 0.8, 0.74], 0, 0.5, 0.35));                     // deck
+  P.push(bx(1.98, 0.92, 0.07, [0.93, 0.93, 0.9], 0, 0.52, 2.6));                    // transom
+  P.push(bx(0.72, 0.85, 0.55, [0.95, 0.95, 0.93], 0.25, 0.95, -0.35));              // console
+  P.push(bx(0.78, 0.36, 0.04, [0.55, 0.68, 0.74], 0.25, 1.52, -0.58, -0.55));       // windscreen
+  P.push(part(new THREE.TorusGeometry(0.15, 0.02, 6, 16), [0.12, 0.12, 0.13], 0.25, 1.42, -0.06, -0.9));
+  P.push(bx(0.6, 0.12, 0.5, [0.15, 0.42, 0.5], 0.25, 0.85, 0.75), bx(0.6, 0.5, 0.1, [0.15, 0.42, 0.5], 0.25, 1.1, 1.0, 0.15)); // helm seat
+  P.push(bx(1.7, 0.4, 0.55, [0.15, 0.42, 0.5], 0, 0.72, 2.15));                    // stern bench
+  P.push(bx(0.42, 0.62, 0.55, [0.08, 0.08, 0.09], 0, 1.18, 2.92), bx(0.36, 0.22, 0.48, [0.92, 0.92, 0.92], 0, 1.55, 2.95)); // outboard
+  P.push(cy(0.07, 0.09, 1.0, 6, [0.1, 0.1, 0.11], 0, 0.42, 3.0), bx(0.06, 0.22, 0.3, [0.1, 0.1, 0.11], 0, -0.02, 3.02));
+  for (const sx of [-1, 1]) { P.push(cy(0.018, 0.018, 2.0, 5, [0.8, 0.8, 0.82], sx * 0.72, 1.32, -1.25, Math.PI / 2 - 0.12)); P.push(cy(0.018, 0.018, 0.3, 5, [0.8, 0.8, 0.82], sx * 0.72, 1.2, -0.35)); }
+  return P;
+}
+function tubeGeometry() {
+  const t = new THREE.TorusGeometry(0.56, 0.22, 12, 28).rotateX(Math.PI / 2).toNonIndexed();
+  const n = t.attributes.position.count, col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const a = Math.atan2(t.attributes.position.getZ(i), t.attributes.position.getX(i)); col.set(Math.floor(((a + Math.PI) / TAU) * 8) % 2 ? [0.95, 0.94, 0.9] : [0.92, 0.28, 0.12], i * 3); }
+  t.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return [t];
+}
 function fishingBoat() {
   const P = rowboatGeometry().map(g => g.clone().scale(2.2, 2.0, 2.4));
   P.push(bx(1.3, 1.1, 1.5, C.white, 0, 1.4, 0.8), bx(1.4, 0.08, 1.6, C.red, 0, 2.0, 0.8), cy(0.04, 0.05, 4.2, 5, C.woodPale, 0, 2.5, -1.2));
@@ -2231,6 +2945,7 @@ function placeRock(x, y, z, s, kind = randInt(0, 3), solid = true, ry = rand(0, 
 
 // ───────────────────── 17. Build everything that isn't a plant ─────────────────────
 const BOATS = [];
+const TUBE = { mesh: null, home: null, x: 0, z: 0, riding: false, s: 0, o: 0, spin: 0, idleT: 0 };
 function buildProps() {
   const F = LAYOUT.F, R = LAYOUT.R, yaw0 = SPAWN.yaw;
   const gy = (p) => groundHeight(p.x, p.z);
@@ -2288,13 +3003,45 @@ function buildProps() {
   const seatP = local({ x: D.x, z: D.z, y: D.top }, dyaw, D.len + 2.7, 0.9, 0);
   const seatEye = local({ x: D.x, z: D.z, y: D.top }, dyaw, D.len + 2.85, 0.9, 0.98);
   INTERACT.push({ x: seatP.x, z: seatP.z, y: D.top, r: 2.0, label: 'Sit on the end of the dock', short: 'Sit', eye: new THREE.Vector3(seatEye.x, seatEye.y, seatEye.z), yaw: dyaw, pitch: -0.08, standX: local({ x: D.x, z: D.z }, dyaw, D.len + 1.2, 0.9).x, standZ: local({ x: D.x, z: D.z }, dyaw, D.len + 1.2, 0.9).z, kind: 'dock' });
-  // rowboat moored beside the dock end
-  const bp = local({ x: D.x, z: D.z }, dyaw, D.len - 2, -3.0);
-  const boat = propMesh(rowboatGeometry(), bp.x, 0, bp.z, dyaw + 0.25);
-  const boatSeat = { x: bp.x, z: bp.z, y: 0, r: 2.6, label: 'Sit in the rowboat', short: 'Board', eye: new THREE.Vector3(bp.x, 1.1, bp.z), yaw: dyaw + Math.PI * 0.5, pitch: -0.04, sway: false, kind: 'boat-seat', standX: local({ x: D.x, z: D.z }, dyaw, D.len - 2, -0.5).x, standZ: local({ x: D.x, z: D.z }, dyaw, D.len - 2, -0.5).z };
-  boatSeat.y = D.top;
-  INTERACT.push(boatSeat);
-  BOATS.push({ mesh: boat, x: bp.x, z: bp.z, yaw: dyaw + 0.25, seat: boatSeat, size: 1 });
+  // the motorboat, moored beside the dock end
+  const bp = local({ x: D.x, z: D.z }, dyaw, D.len - 3, -3.2);
+  const boat = propMesh(motorboatGeometry(), bp.x, 0, bp.z, dyaw, { mat: propMatDouble });
+  const mb = { mesh: boat, x: bp.x, z: bp.z, yaw: dyaw, size: 1.3, motor: true, speed: 0, yawRate: 0, y: 0, vy: 0, pitch: 0, roll: 0, home: { x: bp.x, z: bp.z, yaw: dyaw } };
+  mb.seat = { x: bp.x, z: bp.z, y: D.top, r: 3.4, label: 'Drive the motorboat', short: 'Drive', kind: 'drive', boat: mb, anyMode: true, eye: new THREE.Vector3() };
+  INTERACT.push(mb.seat);
+  BOATS.push(mb); BOATS.motor = mb;
+  // an inner tube waiting at the edge of the waterfall pool
+  {
+    const st = STREAM.lower[2] || STREAM.lower[0];
+    const tx = st.x + st.tx * 1.5, tz = st.z + st.tz * 1.5;
+    const tm = propMesh(tubeGeometry(), tx, st.S, tz, 0, { mat: propMatDouble });
+    TUBE.mesh = tm; TUBE.home = { x: tx, z: tz }; TUBE.x = tx; TUBE.z = tz;
+    TUBE.seat = { x: tx, z: tz, y: st.S, r: 3.0, label: 'Ride the river on the inner tube', short: 'Ride', kind: 'tube', anyMode: true, eye: new THREE.Vector3() };
+    INTERACT.push(TUBE.seat);
+  }
+  // a footbridge where the trail crosses the river
+  if (STREAM.crossing) {
+    const { p, q } = STREAM.crossing;
+    const ax = -q.tz, az = q.tx, half = q.W + 3.2;
+    const e1 = { x: p.x + ax * half, z: p.z + az * half }, e2 = { x: p.x - ax * half, z: p.z - az * half };
+    const top = Math.max(groundHeight(e1.x, e1.z), groundHeight(e2.x, e2.z), q.S + 0.5) + 0.05, arch = 0.55;
+    const rot = Math.atan2(ax, az), parts = [];
+    const nP = Math.round(half * 2 / 0.3);
+    for (let i = 0; i < nP; i++) {
+      const lz = -half + (i + 0.5) * (half * 2 / nP), y = arch * (1 - (lz / half) ** 2);
+      const tilt = Math.atan(-2 * arch * lz / (half * half));
+      parts.push(bx(1.7, 0.07, 0.27, i % 6 === 2 ? C.woodDark : C.wood, 0, y - 0.035, lz, tilt));
+    }
+    for (const sx of [-0.92, 0.92]) for (let i = 0; i <= 6; i++) {
+      const lz = -half + i * (half * 2 / 6), y = arch * (1 - (lz / half) ** 2);
+      parts.push(bx(0.08, 1.0, 0.08, C.woodDark, sx, y + 0.45, lz));
+      const fl = groundHeight(p.x + ax * lz + (-az) * sx, p.z + az * lz + ax * sx);
+      if (fl < top + y - 1.2) parts.push(cy(0.09, 0.11, top + y - fl + 0.3, 6, C.woodDark, sx, (fl - top - 0.3 + y) / 2, lz));
+      if (i < 6) { const lz2 = lz + half * 2 / 6, y2 = arch * (1 - (lz2 / half) ** 2), mid = (lz + lz2) / 2; parts.push(bx(0.06, 0.07, half * 2 / 6 + 0.05, C.woodPale, sx, (y + y2) / 2 + 0.92, mid, Math.atan2(y - y2, lz2 - lz))); }
+    }
+    propMesh(parts, p.x, top, p.z, rot);
+    PLATFORMS.push({ x: p.x, z: p.z, hx: 0.9, hz: half, rot, top, arch, wood: true, climb: true });
+  }
   // distant fishing boats
   for (const [fw, rt] of [[420, -160], [650, 210], [900, -40]]) {
     const p = LAYOUT.at(fw, rt);
@@ -2382,13 +3129,18 @@ function buildProps() {
     placeRock(x, h - rand(0.3, 0.7), z, rand(0.5, 2.4), randInt(0, 3));
   }
   // the waterfall cliff and the pool's edge
-  for (let al = -WF.halfLen * 0.75; al <= WF.halfLen * 0.75; al += rand(2.2, 4.2)) {
+  for (let al = -WF.halfLen * 0.8; al <= WF.halfLen * 0.8; al += rand(1.6, 3.0)) {
     if (Math.abs(al - ((STREAM.lip.z - WF.z) * WF.nx - (STREAM.lip.x - WF.x) * WF.nz)) < 4.8) continue;
     const into = rand(0.4, 1.6);
     const x = WF.x - WF.nz * al + WF.nx * into, z = WF.z + WF.nx * al + WF.nz * into;
     const h = groundHeight(x - WF.nx * 3, z - WF.nz * 3);
-    placeRock(x, h + rand(-0.8, 2.5), z, rand(1.6, 3.6), randInt(0, 3), true, rand(0, TAU), 0.3);
-    if (rng() < 0.5) placeRock(x + WF.nx * 1.5, h + WF.height * rand(0.55, 0.9), z + WF.nz * 1.5, rand(1.4, 2.6), randInt(0, 3), false, rand(0, TAU), 0.3);
+    placeRock(x, h + rand(-0.8, 2.5), z, rand(2.0, 4.4), randInt(0, 3), true, rand(0, TAU), 0.3);
+    placeRock(x + WF.nx * 1.2, h + WF.height * rand(0.3, 0.55), z + WF.nz * 1.2, rand(1.8, 3.4), randInt(0, 3), false, rand(0, TAU), 0.4);
+    if (rng() < 0.7) placeRock(x + WF.nx * 2.2, h + WF.height * rand(0.65, 0.95), z + WF.nz * 2.2, rand(1.6, 3.0), randInt(0, 3), false, rand(0, TAU), 0.4);
+    if (rng() < 0.65 && VEG.ferns) { // ferns clinging to the wet rock
+      const sf = rand(-1.4, 1.3), lx = WF.x - WF.nz * al + WF.nx * sf, lz = WF.z + WF.nx * al + WF.nz * sf;
+      VEG.ferns.add(mtx(lx, groundHeight(lx, lz) - 0.1, lz, rand(0, TAU), rand(1.1, 2.0), rand(-0.5, 0.5), rand(-0.5, 0.5)), {}, new THREE.Color().setHSL(0.27, 0.4, 0.78));
+    }
   }
   for (let i = 0; i < 22; i++) {
     const ang = rand(0, TAU); if (Math.cos(ang) > 0.75) continue;
@@ -2474,7 +3226,7 @@ function buildProps() {
     return mergeGeos(P.map(p => { const q = new THREE.BufferGeometry(); for (const nm of ['position', 'normal', 'color', 'uv']) q.setAttribute(nm, p.attributes[nm]); return q; }));
   })();
   const weedTex = canvasTex(128, 128, (g, w, h) => {
-    for (let i = 0; i < 40; i++) { g.strokeStyle = hsl(rand(60, 95), 40, rand(12, 22), 0.9); g.lineWidth = rand(2, 5); g.beginPath(); const x = rand(20, 108), y = rand(20, 108); g.moveTo(x, y); g.bezierCurveTo(x + rand(-30, 30), y + rand(-30, 30), x + rand(-30, 30), y + rand(-30, 30), x + rand(-40, 40), y + rand(-40, 40)); g.stroke(); }
+    for (let i = 0; i < 26; i++) { g.strokeStyle = hsl(rand(40, 95), 35, rand(18, 30), 0.85); g.lineWidth = rand(1.2, 3); g.beginPath(); const x = rand(20, 108), y = rand(20, 108); g.moveTo(x, y); g.bezierCurveTo(x + rand(-30, 30), y + rand(-30, 30), x + rand(-30, 30), y + rand(-30, 30), x + rand(-40, 40), y + rand(-40, 40)); g.stroke(); }
   });
   const smallMat = patch(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 }), { key: 'small' });
   const weedMat = patch(new THREE.MeshStandardMaterial({ map: weedTex, alphaTest: 0.4, roughness: 0.5, side: THREE.DoubleSide }), { key: 'weed' });
@@ -2483,13 +3235,13 @@ function buildProps() {
   const drift = new Field('driftwood', driftG, propMat, { chunk: 200, cast: true, far: 160, nearMul: 1.8, pad: 3 });
   const weed = new Field('seaweed', (() => { const p = new THREE.PlaneGeometry(1.4, 1.4).rotateX(-Math.PI / 2).translate(0, 0.02, 0); return prep(p); })(), weedMat, { chunk: 100, far: 60, nearMul: 0.7, pad: 1 });
   const sc = new THREE.Color();
-  const SHELL_COLS = [[0.95, 0.88, 0.8], [0.98, 0.75, 0.68], [0.9, 0.7, 0.5], [0.85, 0.82, 0.8], [0.98, 0.6, 0.45]];
+  const SHELL_COLS = [[0.82, 0.74, 0.64], [0.86, 0.62, 0.55], [0.75, 0.58, 0.42], [0.7, 0.66, 0.62], [0.88, 0.52, 0.4]];
   for (let i = 0; i < 60000; i++) {
     const x = rand(-700, 600), z = rand(-600, 600), h = groundHeight(x, z);
     if (h < -2.5 || h > 2.6 || rockyMask(x, z) > 0.6) continue;
     const r = rng();
-    if (h > 0.15 && h < 1.4 && r < 0.03) { const c = pick(SHELL_COLS); shells.add(mtxAlign(x, h, z, rand(0, TAU), rand(0.7, 1.6), groundNormal(x, z)), {}, sc.setRGB(c[0], c[1], c[2])); }
-    else if (h > 0.1 && h < 0.9 && r < 0.034) weed.add(mtxAlign(x, h + 0.01, z, rand(0, TAU), rand(0.6, 1.3), groundNormal(x, z)));
+    if (h > 0.15 && h < 1.4 && r < 0.016) { const c = pick(SHELL_COLS); shells.add(mtxAlign(x, h, z, rand(0, TAU), rand(0.7, 1.6), groundNormal(x, z)), {}, sc.setRGB(c[0], c[1], c[2])); }
+    else if (h > 0.6 && h < 1.3 && r < 0.0318) weed.add(mtxAlign(x, h + 0.01, z, rand(0, TAU), rand(0.35, 0.8), groundNormal(x, z)));
     else if (r < 0.0365 && h < 0.9) stars.add(mtxAlign(x, h + 0.01, z, rand(0, TAU), rand(0.8, 1.4), groundNormal(x, z)), {}, sc.setHSL(rand(0.0, 0.08), 0.75, rand(0.45, 0.6)));
     else if (h > 1.4 && h < 2.6 && r < 0.0378 && !excluded(x, z, 2)) drift.add(mtxAlign(x, h + 0.02, z, rand(0, TAU), rand(0.6, 1.3), groundNormal(x, z), 0.7));
   }
@@ -2536,13 +3288,22 @@ function buildDistantIslands() {
 }
 function updateBoats(t) {
   for (const b of BOATS) {
+    if (b.driving) continue;
+    if (b.seat) { b.seat.x = b.x; b.seat.z = b.z; }
     const y = oceanHeight(b.x, b.z, t);
     const s = 1.4 * b.size;
     const yf = oceanHeight(b.x - Math.sin(b.yaw) * s, b.z - Math.cos(b.yaw) * s, t), yb = oceanHeight(b.x + Math.sin(b.yaw) * s, b.z + Math.cos(b.yaw) * s, t);
     const yl = oceanHeight(b.x - Math.cos(b.yaw) * 0.6 * b.size, b.z + Math.sin(b.yaw) * 0.6 * b.size, t), yr = oceanHeight(b.x + Math.cos(b.yaw) * 0.6 * b.size, b.z - Math.sin(b.yaw) * 0.6 * b.size, t);
     b.mesh.position.y = y - 0.12 * b.size;
     b.mesh.rotation.set(Math.atan2(yf - yb, 2 * s) * 0.8, b.yaw, Math.atan2(yr - yl, 1.2 * b.size) * 0.8, 'YXZ');
-    if (b.seat) { b.seat.eye.set(b.x, b.mesh.position.y + 1.05, b.z); }
+  }
+  // the inner tube bobs at the pool until someone takes it
+  if (TUBE.mesh && !TUBE.riding) {
+    TUBE.idleT += 0.016;
+    const lvl = riverQuery(TUBE.x, TUBE.z);
+    const y = (lvl ? lvl.S : POOL.level) + Math.sin(t * 1.3) * 0.03;
+    TUBE.mesh.position.set(TUBE.x, y - 0.05, TUBE.z); TUBE.mesh.rotation.set(Math.sin(t * 0.9) * 0.04, t * 0.1, Math.cos(t * 1.1) * 0.04);
+    TUBE.seat.x = TUBE.x; TUBE.seat.z = TUBE.z; TUBE.seat.y = y;
   }
 }
 
@@ -3094,7 +3855,8 @@ FX.build = function () {
         vec3 c = uFoamCol;
         if (vT < 0.5) a = smoothstep(1.0, 0.4, d);
         else if (vT < 1.5) { a = smoothstep(1.0, 0.8, d) * (0.35 + 0.65 * smoothstep(0.55, 0.95, d)); c = mix(uWaterFog * 2.0 + 0.3, vec3(1.0), 0.6); a += smoothstep(0.35, 0.0, length(q - vec2(-0.15, -0.15))) * 0.8; }
-        else a = smoothstep(1.0, 0.0, d) * 0.5;
+        else if (vT < 2.5) a = smoothstep(1.0, 0.0, d) * 0.5;
+        else { a = smoothstep(1.0, 0.35, d); c = vec3(0.6, 0.51, 0.36) * (0.3 + 0.7 * uDaylight); }
         a *= vA; if (a < 0.01) discard;
         c = applyFog(c, vW, 1.0);
         gl_FragColor = vec4(c * a, a); }`,
@@ -3102,33 +3864,6 @@ FX.build = function () {
   });
   const pts = new THREE.Points(g, m); pts.frustumCulled = false; pts.renderOrder = 9; scene.add(pts);
   FX.pts = pts; FX.pos = pos; FX.size = size; FX.alpha = alpha; FX.type = type;
-
-  // footprints
-  const fpTex = canvasTex(64, 128, (gg, w, h) => {
-    gg.fillStyle = '#fff';
-    gg.beginPath(); gg.ellipse(32, 84, 15, 30, 0, 0, TAU); gg.fill();
-    gg.beginPath(); gg.ellipse(32, 36, 13, 16, 0, 0, TAU); gg.fill();
-    for (let i = 0; i < 5; i++) { gg.beginPath(); gg.arc(19 + i * 6.5, 14 - Math.abs(i - 1) * 2, 3.6 - i * 0.35, 0, TAU); gg.fill(); }
-  }, { linear: true });
-  const NFP = 180;
-  const fpg = new THREE.PlaneGeometry(0.13, 0.27).rotateX(-Math.PI / 2);
-  const birth = new Float32Array(NFP).fill(-1e4), life = new Float32Array(NFP).fill(1);
-  fpg.setAttribute('aBirth', new THREE.InstancedBufferAttribute(birth, 1).setUsage(THREE.DynamicDrawUsage));
-  fpg.setAttribute('aLife', new THREE.InstancedBufferAttribute(life, 1).setUsage(THREE.DynamicDrawUsage));
-  const fpm = new THREE.ShaderMaterial({
-    uniforms: { ...U, uMap: { value: fpTex } },
-    vertexShader: `${COMMON} attribute float aBirth; attribute float aLife; varying vec2 vUv; varying float vF; varying vec3 vW;
-      void main(){ vUv = uv; vec4 w = modelMatrix * instanceMatrix * vec4(position, 1.0); vW = w.xyz; vF = clamp(1.0 - (uTime - aBirth) / aLife, 0.0, 1.0);
-        gl_Position = projectionMatrix * viewMatrix * w; }`,
-    fragmentShader: `${COMMON} uniform sampler2D uMap; varying vec2 vUv; varying float vF; varying vec3 vW;
-      void main(){ float a = texture2D(uMap, vUv).r * vF * 0.32 * smoothstep(0.0, 0.15, vF); if (a < 0.005) discard;
-        vec3 c = applyFog(vec3(0.22, 0.17, 0.11) * (0.3 + 0.7 * uDaylight), vW, 1.0); gl_FragColor = vec4(c * a, a); }`,
-    transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-    blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
-  });
-  const fp = new THREE.InstancedMesh(fpg, fpm, NFP); fp.frustumCulled = false; fp.renderOrder = 2;
-  for (let i = 0; i < NFP; i++) fp.setMatrixAt(i, mtx(0, -999, 0));
-  scene.add(fp); FX.fp = { mesh: fp, birth, life, i: 0, n: NFP };
 
   // rain streaks around the camera
   const NR = 4200, rp = [], rc = [], rs = [], ri = [];
@@ -3222,11 +3957,29 @@ FX.splash = function (x, y, z, k = 1) {
   for (let i = 0; i < n; i++) { const a = rand(0, TAU), s = rand(0.4, 1.8) * k; FX.spawn(x + rand(-0.2, 0.2), y + 0.05, z + rand(-0.2, 0.2), Math.cos(a) * s, rand(1.2, 3.4) * Math.sqrt(k), Math.sin(a) * s, rand(0.5, 1.0), rand(0.03, 0.07), 0, 9.8); }
 };
 FX.bubbles = function (x, y, z, n = 3) { for (let i = 0; i < n; i++) FX.spawn(x + rand(-0.1, 0.1), y, z + rand(-0.1, 0.1), rand(-0.1, 0.1), rand(0.5, 0.9), rand(-0.1, 0.1), rand(2, 5), rand(0.025, 0.06), 1, 0); };
-FX.footprint = function (x, z, yaw) {
-  const f = FX.fp, h = groundHeight(x, z), i = f.i; f.i = (f.i + 1) % f.n;
-  f.mesh.setMatrixAt(i, mtxAlign(x, h + 0.015, z, yaw + rand(-0.08, 0.08), 1, groundNormal(x, z)));
-  f.birth[i] = U.uTime.value; f.life[i] = h < 0.7 ? 7 : 70;
-  f.mesh.instanceMatrix.needsUpdate = true; f.mesh.geometry.attributes.aBirth.needsUpdate = true; f.mesh.geometry.attributes.aLife.needsUpdate = true;
+// footprints are pressed into the living-sand layer, so waves wash them away
+FX.footprint = function (x, z, yaw, left) { if (SAND.carveTex) stampFoot(x, z, yaw + rand(-0.06, 0.06), left); };
+// water drops on the camera after a wave, a dive or a ride through rapids
+FX.drops = [];
+FX.lens = function (n) {
+  const cv = document.getElementById('lens'); if (!cv) return;
+  const w = innerWidth, h = innerHeight;
+  for (let i = 0; i < n && FX.drops.length < 70; i++) FX.drops.push({ x: rand(0, w), y: rand(0, h * 0.9), r: rand(3, 14) * Math.min(1.4, w / 900 + 0.4), life: rand(1.0, 3.2), age: 0, vy: rand(6, 30) });
+};
+FX.updateLens = function (dt) {
+  const cv = document.getElementById('lens'); if (!cv) return;
+  if (!FX.drops.length) { if (cv.dataset.on) { cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); delete cv.dataset.on; } return; }
+  if (cv.width !== innerWidth || cv.height !== innerHeight) { cv.width = innerWidth; cv.height = innerHeight; }
+  const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); cv.dataset.on = 1;
+  for (let i = FX.drops.length - 1; i >= 0; i--) {
+    const d = FX.drops[i]; d.age += dt; d.y += d.vy * dt * (d.r / 12);
+    if (d.age > d.life || P.eyeUnder) { FX.drops.splice(i, 1); continue; }
+    const a = Math.min(1, (d.life - d.age) * 1.5) * 0.85;
+    const gr = g.createRadialGradient(d.x - d.r * 0.25, d.y - d.r * 0.3, d.r * 0.1, d.x, d.y, d.r);
+    gr.addColorStop(0, `rgba(255,255,255,${0.12 * a})`); gr.addColorStop(0.6, `rgba(225,240,242,${0.04 * a})`); gr.addColorStop(0.88, `rgba(30,50,60,${0.1 * a})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.beginPath(); g.ellipse(d.x, d.y, d.r, d.r * 1.12, 0, 0, TAU); g.fill();
+    g.fillStyle = `rgba(255,255,255,${0.3 * a})`; g.beginPath(); g.ellipse(d.x - d.r * 0.3, d.y - d.r * 0.42, d.r * 0.12, d.r * 0.07, -0.5, 0, TAU); g.fill();
+  }
 };
 FX.bolt = function (a, dist) {
   const cx = camera.position.x + Math.cos(a) * dist, cz = camera.position.z + Math.sin(a) * dist;
@@ -3258,10 +4011,11 @@ FX.update = function (dt, t) {
     if (p.type === 2) { p.vx *= 1 - dt * 0.5; p.vz *= 1 - dt * 0.5; }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     if (p.type === 0 && p.vy < 0 && p.y < waterAt(p.x, p.z).level) p.age = p.life;
+    if (p.type === 3 && p.vy < 0 && p.y < groundHeight(p.x, p.z)) p.age = p.life;
     pos[i * 3] = p.x; pos[i * 3 + 1] = p.y; pos[i * 3 + 2] = p.z;
     const k = p.age / p.life;
     size[i] = p.type === 2 ? p.size * (1 + k * 1.5) : p.size;
-    alpha[i] = p.type === 2 ? Math.sin(k * Math.PI) * 0.45 : (1 - k) * (p.type === 1 ? 0.9 : 0.85);
+    alpha[i] = p.type === 2 ? Math.sin(k * Math.PI) * 0.45 : p.type === 3 ? 1 - k * k : (1 - k) * (p.type === 1 ? 0.9 : 0.85);
     type[i] = p.type;
   }
   const g = FX.pts.geometry.attributes;
@@ -3580,6 +4334,7 @@ const AUDIO = (() => {
     set(master.gain, settings.master, 0.1); set(amb.gain, settings.ambience, 0.1); set(musicBus.gain, settings.music * 0.7, 0.3);
   }
   let birdT = 3, cricketT = 2;
+  const E = {}; let scratchL = null;
   const _fwdA = new THREE.Vector3(), _upA = new THREE.Vector3();
   function update(dt) {
     if (!ready || ctx.state !== 'running') return;
@@ -3618,8 +4373,9 @@ const AUDIO = (() => {
     set(L.insects.gain, jungle * 0.006 * (0.4 + 0.6 * day) * (under ? 0 : 1), 1);
     const df = STREAM.fall ? Math.hypot(x - STREAM.fall.x, z - STREAM.fall.z) : 999;
     set(L.falls.g.gain, clamp(9 / (df + 2), 0, 0.5) * (under ? 0.6 : 1));
-    const sn = STREAM.near && STREAM.near.get(vIndex(x, z));
-    set(L.stream.g.gain, sn ? 0.05 * (1 - smoothstep(2, 11, sn.d)) : 0, 0.5);
+    const rq = riverQuery(x, z);
+    set(L.stream.g.gain, rq ? 0.1 * (1 - smoothstep(rq.W, rq.W + 28, rq.d)) * (0.4 + rq.speed / 3) * (under ? 0.5 : 1) : 0, 0.5);
+    if (E.g && P.mode !== 'boat') { set(E.g.gain, 0, 0.3); set(E.n.g.gain, 0, 0.3); }
     // birdsong in the forest by day, crickets by night
     birdT -= dt; cricketT -= dt;
     if (birdT < 0) {
@@ -3664,6 +4420,35 @@ const AUDIO = (() => {
       if (under) { for (let i = 0; i < 3; i++) tone(null, { t: i * 0.05, f0: rand(400, 700), f1: rand(900, 1500), dur: 0.05, gain: 0.025 }); }
       else burst(amb, NB.white, { dur: 0.35, gain: 0.05, filters: [biq('bandpass', 1100, 0.7)], attack: 0.06 });
     },
+    engine(throttle, speed, on) {
+      if (!ready) return;
+      if (!E.g) {
+        E.o1 = ctx.createOscillator(); E.o1.type = 'sawtooth'; E.o2 = ctx.createOscillator(); E.o2.type = 'square';
+        E.f = biq('lowpass', 700, 1.2); E.g = ctx.createGain(); E.g.gain.value = 0; const g2 = ctx.createGain(); g2.gain.value = 0.35;
+        E.o1.connect(E.f); E.o2.connect(g2); g2.connect(E.f); E.f.connect(E.g); E.g.connect(amb); E.o1.start(); E.o2.start();
+        E.n = layer(NB.white, [biq('bandpass', 1100, 0.7)]);
+      }
+      const f = 34 + speed * 5.2 + throttle * 20;
+      set(E.o1.frequency, f, 0.08); set(E.o2.frequency, f * 2.01, 0.08); set(E.f.frequency, 500 + speed * 60 + throttle * 300, 0.1);
+      set(E.g.gain, on ? 0.035 + throttle * 0.05 : 0, 0.15); set(E.n.g.gain, on ? 0.012 + speed * 0.0035 : 0, 0.2);
+    },
+    waveHit(k) {
+      if (!ready) return;
+      burst(amb, NB.pink, { dur: 1.1 + k, gain: 0.18 + k * 0.25, filters: [biq('lowpass', 2400), biq('highpass', 120)], attack: 0.03 });
+      burst(amb, NB.brown, { dur: 0.6, gain: 0.2 + k * 0.3, filters: [biq('lowpass', 260)], attack: 0.02 });
+    },
+    slap(s) { if (!ready) return; burst(amb, NB.brown, { dur: 0.3, gain: 0.3 * s, filters: [biq('lowpass', 380)], attack: 0.003 }); burst(amb, NB.white, { dur: 0.45, gain: 0.09 * s, filters: [biq('bandpass', 1300, 0.7)], attack: 0.01 }); },
+    dig() {
+      if (!ready) return;
+      burst(amb, NB.white, { dur: 0.16, gain: 0.08, filters: [biq('lowpass', 1500), biq('highpass', 200)], attack: 0.004 });
+      burst(amb, NB.brown, { dur: 0.12, gain: 0.25, filters: [biq('lowpass', 180)], attack: 0.003 });
+      burst(amb, NB.white, { t: 0.3, dur: 0.45, gain: 0.035, filters: [biq('bandpass', 2600, 0.6)], attack: 0.06 });
+    },
+    scratch(v) {
+      if (!ready) return;
+      if (!scratchL) scratchL = layer(NB.white, [biq('bandpass', 3000, 1.1)]);
+      set(scratchL.g.gain, v * 0.05, 0.05);
+    },
     land() { if (ready) burst(amb, NB.brown, { dur: 0.25, gain: 0.3, filters: [biq('lowpass', 200)], attack: 0.005 }); },
     seat(kind) { if (!ready) return; if (kind === 'chair' || kind === 'bench' || kind === 'dock' || kind === 'boat-seat') tone(amb, { f0: 210, f1: 150, dur: 0.25, gain: 0.03, type: 'triangle', vib: 8, vibRate: 25 }); else burst(amb, NB.white, { dur: 0.25, gain: 0.03, filters: [biq('lowpass', 1500)], attack: 0.04 }); },
     birdCall(kind, x, y, z) {
@@ -3690,10 +4475,368 @@ const AUDIO = (() => {
   };
 })();
 
+// ───────────────────── 25. Waves that reach you ─────────────────────
+const WAVEHIT = { lastG: 0 };
+function checkWaveHit(dt) {
+  if ((P.mode !== 'walk' && P.mode !== 'swim') || P.water.kind !== 'sea' || P.climb) { WAVEHIT.lastG = 0; return; }
+  const x = P.pos.x, z = P.pos.z, g0 = groundHeight(x, z), depth = -g0;
+  if (depth > 7 || g0 > 1.4) { WAVEHIT.lastG = 0; return; }
+  const psi = U.uTime.value / SURF_P + surfOffJS(x, z) + Math.max(depth, 0) * 0.42;
+  const n = Math.floor(psi), g = psi - n;
+  if (WAVEHIT.lastG > 0.8 && g < 0.2) {
+    const amp = SURF_TABLE[((n % 16) + 16) % 16] * U.uSurfAmp.value;
+    const zone = depth > 0 ? smoothstep(5, 1.2, depth) * smoothstep(-85, -35, coastAt(x, z)) : 1;
+    let k = 0;
+    if (depth > 0.15) k = amp * zone; else if (g0 < amp * 0.9) k = amp * 0.3;
+    if (k > 0.12) waveHit(k, x, z, depth);
+  }
+  WAVEHIT.lastG = g;
+}
+function waveHit(k, x, z, depth) {
+  const sd = seaDir(x, z), big = k > 0.55;
+  const push = P.mode === 'swim' ? 2.6 : 3.6;
+  P.vel.x -= sd.x * k * push; P.vel.z -= sd.z * k * push;
+  if (P.mode === 'walk' && depth > 0.35 && big) { P.vel.y += 1.6 * k; P.onGround = false; P.stumble = 1; }
+  if (P.mode === 'swim' && big) { P.dunk = 1; if (FX.bubbles) FX.bubbles(P.pos.x, P.pos.y - 0.3, P.pos.z, 12); }
+  const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+  if (FX.splash) FX.splash(x + fx * 0.8, P.water.level + 0.1, z + fz * 0.8, 0.6 + k * 2.2);
+  if (FX.lens && (depth > 0.25 || P.mode === 'swim')) FX.lens(Math.round(6 + k * 46));
+  if (AUDIO.waveHit) AUDIO.waveHit(k);
+}
+
+// ───────────────────── 26. The motorboat ─────────────────────
+const WAKE = { pts: [], mesh: null, max: 90, acc: 0 };
+function buildWake() {
+  const n = WAKE.max, g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('aA', new THREE.BufferAttribute(new Float32Array(n * 2), 1).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2 * 2), 2).setUsage(THREE.DynamicDrawUsage));
+  const idx = []; for (let i = 0; i < n - 1; i++) { const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); } g.setIndex(idx);
+  const m = new THREE.ShaderMaterial({
+    uniforms: { ...U, ...WATER },
+    vertexShader: `${COMMON} attribute float aA; varying float vA; varying vec2 vUv; varying vec3 vW;
+      void main(){ vA = aA; vUv = uv; vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: `${COMMON} uniform vec3 uFoamCol; varying float vA; varying vec2 vUv; varying vec3 vW;
+      void main(){ float n = texture2D(uNoiseTex, vec2(vUv.x * 0.6, vUv.y * 0.12) + vW.xz * 0.05).a;
+        float edge = smoothstep(0.0, 0.25, vUv.x) * smoothstep(1.0, 0.75, vUv.x);
+        float core = 1.0 - smoothstep(0.15, 0.5, abs(vUv.x - 0.5)) * 0.6;
+        float a = vA * edge * smoothstep(0.3, 0.75, n * core + 0.2) * 0.85; if (a < 0.01) discard;
+        vec3 c = applyFog(uFoamCol, vW, 1.0); gl_FragColor = vec4(c * a, a); }`,
+    transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+  });
+  WAKE.mesh = new THREE.Mesh(g, m); WAKE.mesh.frustumCulled = false; WAKE.mesh.renderOrder = 8; scene.add(WAKE.mesh);
+}
+function updateWake(dt, t) {
+  if (!WAKE.mesh) return;
+  const b = BOATS.motor;
+  if (b && b.driving && Math.abs(b.speed) > 1.2 && b.y < b.target + 0.25) {
+    const fx = -Math.sin(b.yaw), fz = -Math.cos(b.yaw);
+    WAKE.acc += Math.abs(b.speed) * dt;
+    if (WAKE.acc > 0.7) { WAKE.acc = 0; WAKE.pts.unshift({ x: b.x - fx * 2.8, z: b.z - fz * 2.8, t, w: 0.9, px: -fz, pz: fx, v: Math.abs(b.speed) }); if (WAKE.pts.length > WAKE.max) WAKE.pts.pop(); }
+  }
+  while (WAKE.pts.length && t - WAKE.pts[WAKE.pts.length - 1].t > 12) WAKE.pts.pop();
+  const pos = WAKE.mesh.geometry.attributes.position.array, aa = WAKE.mesh.geometry.attributes.aA.array, uv = WAKE.mesh.geometry.attributes.uv.array;
+  let L = 0;
+  for (let i = 0; i < WAKE.max; i++) {
+    const p = WAKE.pts[Math.min(i, WAKE.pts.length - 1)];
+    if (!p) { aa[i * 2] = aa[i * 2 + 1] = 0; continue; }
+    const age = t - p.t, w = p.w + age * (0.9 + p.v * 0.08);
+    const y = oceanHeight(p.x, p.z, t) + 0.05;
+    pos.set([p.x + p.px * w, y, p.z + p.pz * w, p.x - p.px * w, y, p.z - p.pz * w], i * 6);
+    const a = i < WAKE.pts.length ? Math.max(0, 1 - age / 12) * Math.min(1, p.v / 6) : 0;
+    aa[i * 2] = aa[i * 2 + 1] = a;
+    if (i > 0) L += 0.7;
+    uv.set([0, L, 1, L], i * 4);
+  }
+  const at = WAKE.mesh.geometry.attributes; at.position.needsUpdate = at.aA.needsUpdate = at.uv.needsUpdate = true;
+}
+const _bm = new THREE.Matrix4(), _bq = new THREE.Quaternion(), _be = new THREE.Euler(), _bv = new THREE.Vector3();
+function boatAttitude(b, t, dt) {
+  const fx = -Math.sin(b.yaw), fz = -Math.cos(b.yaw), rx = Math.cos(b.yaw), rz = -Math.sin(b.yaw), L = 2.2, Wd = 0.8;
+  const yf = oceanHeight(b.x + fx * L, b.z + fz * L, t), yb = oceanHeight(b.x - fx * L, b.z - fz * L, t);
+  const yl = oceanHeight(b.x - rx * Wd, b.z - rz * Wd, t), yr = oceanHeight(b.x + rx * Wd, b.z + rz * Wd, t);
+  const plane = smoothstep(3, 10, Math.abs(b.speed));
+  b.target = (yf + yb + yl + yr) * 0.25 - 0.2 + plane * 0.12;
+  const wasAir = b.y > b.target + 0.06;
+  if (b.y < b.target) { b.vy += (b.target - b.y) * 38 * dt; b.vy *= Math.exp(-6 * dt); }
+  else b.vy -= 9.8 * dt;
+  b.y += b.vy * dt;
+  if (b.y < b.target - 0.5) { b.y = b.target - 0.5; b.vy = Math.max(b.vy, 0); }
+  if (wasAir && b.y <= b.target && b.vy < -1.6) { // slam back down
+    const s = Math.min(1.6, -b.vy / 3);
+    if (FX.splash) { FX.splash(b.x + rx * 1.1, b.target + 0.2, b.z + rz * 1.1, s); FX.splash(b.x - rx * 1.1, b.target + 0.2, b.z - rz * 1.1, s); }
+    if (AUDIO.slap) AUDIO.slap(s);
+    if (b.driving) { P.shake = Math.min(1, s * 0.8); if (FX.lens && s > 0.8) FX.lens(Math.round(s * 14)); }
+  }
+  const air = b.y > b.target + 0.08;
+  const tp = air ? b.pitch - 0.25 * dt : Math.atan2(yf - yb, 2 * L) + plane * 0.07 + (b.speed > 0 ? Math.min(0.05, b.speed * 0.004) : 0);
+  const tr = air ? b.roll : Math.atan2(yr - yl, 2 * Wd) * 0.7 - b.yawRate * Math.abs(b.speed) * 0.025;
+  b.pitch = damp(b.pitch, tp, air ? 1.5 : 6, dt); b.roll = damp(b.roll, clamp(tr, -0.4, 0.4), 5, dt);
+  b.mesh.position.set(b.x, b.y, b.z); b.mesh.rotation.set(b.pitch, b.yaw, b.roll, 'YXZ');
+}
+function boardBoat(it) {
+  const b = it.boat; if (!b) return;
+  P.mode = 'boat'; P.boat = b; b.driving = true; b.y = b.mesh.position.y; b.vy = 0;
+  P.yaw = b.yaw; P.vel.set(0, 0, 0);
+  if (AUDIO.seat) AUDIO.seat('boat-seat');
+  showActivityHint(isTouch ? 'Joystick to drive · Get out with the button' : 'W/S throttle · A/D steer · Shift full speed · E get out');
+}
+function exitBoat() {
+  const b = P.boat; if (!b) return;
+  b.driving = false; b.speed = 0; b.yawRate = 0; P.boat = null;
+  const rx = Math.cos(b.yaw), rz = -Math.sin(b.yaw);
+  // step onto the dock if it's right there, otherwise slip into the water beside the boat
+  for (const p of PLATFORMS) {
+    const dx = b.x - p.x, dz = b.z - p.z, c = Math.cos(p.rot), s = Math.sin(p.rot);
+    const lx = dx * c - dz * s, lz = dx * s + dz * c;
+    if (Math.abs(lx) < p.hx + 4.5 && Math.abs(lz) < p.hz + 1) {
+      const ix = clamp(lx, -p.hx + 0.4, p.hx - 0.4), iz = clamp(lz, -p.hz + 0.4, p.hz - 0.4);
+      P.pos.set(p.x + ix * c + iz * s, p.top + EYE, p.z - ix * s + iz * c); P.mode = 'walk'; P.onGround = true; P.vel.set(0, 0, 0); return;
+    }
+  }
+  const x = b.x + rx * 1.8, z = b.z + rz * 1.8;
+  P.pos.set(x, oceanHeight(x, z, U.uTime.value) + 0.13, z); P.mode = 'swim'; P.vel.set(0, 0, 0);
+  if (FX.splash) FX.splash(x, P.pos.y, z, 0.8); if (AUDIO.splash) AUDIO.splash(0.7);
+}
+function updateBoatDrive(dt) {
+  const b = P.boat, t = U.uTime.value;
+  const thr = input.my, steer = input.mx, boost = input.run;
+  b.speed += thr * (boost ? 9 : 6) * dt * (thr < 0 ? 0.6 : 1);
+  b.speed -= b.speed * (0.22 + Math.abs(b.speed) * 0.011) * dt;
+  b.speed = clamp(b.speed, -4.5, boost ? 22 : 14.5);
+  const dir = b.speed < -0.2 ? -1 : 1;
+  b.yawRate = damp(b.yawRate, -steer * (0.32 + Math.min(Math.abs(b.speed), 10) * 0.085) * dir, 4, dt);
+  b.yaw += b.yawRate * dt;
+  const fx = -Math.sin(b.yaw), fz = -Math.cos(b.yaw);
+  let nx = b.x + fx * b.speed * dt, nz = b.z + fz * b.speed * dt;
+  const sgn = b.speed >= 0 ? 1 : -1;
+  const kx = nx + fx * 2.5 * sgn, kz = nz + fz * 2.5 * sgn;
+  if (groundHeight(kx, kz) > oceanHeight(kx, kz, t) - 0.45 || riverQuery(kx, kz)) {
+    if (Math.abs(b.speed) > 3) { if (AUDIO.slap) AUDIO.slap(0.6); P.shake = 0.6; }
+    b.speed *= -0.25; nx = b.x; nz = b.z;
+  }
+  const r = Math.hypot(nx, nz); if (r > 1300) { nx *= 1300 / r; nz *= 1300 / r; b.speed *= 0.95; }
+  b.x = nx; b.z = nz;
+  boatAttitude(b, t, dt);
+  // spray off the bow at speed
+  if (Math.abs(b.speed) > 7 && FX.spawn && rng() < dt * Math.abs(b.speed) * 1.2) {
+    const rx = Math.cos(b.yaw), rz = -Math.sin(b.yaw), s = rng() < 0.5 ? -1 : 1;
+    FX.spawn(b.x + fx * 1.7 + rx * s * 0.7, b.y + 0.4, b.z + fz * 1.7 + rz * s * 0.7, rx * s * rand(1.5, 3) + fx * b.speed * 0.4, rand(1.5, 3.2), rz * s * rand(1.5, 3) + fz * b.speed * 0.4, rand(0.5, 0.9), rand(0.04, 0.08), 0, 9.8);
+  }
+  // the helm seat
+  b.mesh.updateMatrixWorld();
+  _bv.set(0.25, 1.98, 0.85).applyMatrix4(b.mesh.matrixWorld);
+  P.pos.copy(_bv); P.camY = P.pos.y;
+  P.yaw += b.yawRate * dt;
+  b.seat.x = b.x; b.seat.z = b.z;
+  if (AUDIO.engine) AUDIO.engine(Math.abs(thr), Math.abs(b.speed), true);
+}
+
+// ───────────────────── 27. Riding the river on an inner tube ─────────────────────
+function startTube() {
+  const L = STREAM.lower; if (!L.length) return;
+  let best = 0, bd = 1e9; L.forEach((p, i) => { const d = Math.hypot(p.x - TUBE.x, p.z - TUBE.z); if (d < bd) { bd = d; best = i; } });
+  TUBE.i = best; TUBE.o = 0; TUBE.riding = true; TUBE.rider = true;
+  P.mode = 'tube'; P.vel.set(0, 0, 0);
+  if (AUDIO.splash) AUDIO.splash(0.5);
+  showActivityHint(isTouch ? 'Steer left and right with the joystick · Get off with the button' : 'A/D steer · W paddle · E get off');
+}
+function exitTube(intoSea) {
+  TUBE.rider = false;
+  P.mode = 'swim'; P.pos.y = (intoSea ? oceanHeight(P.pos.x, P.pos.z, U.uTime.value) : P.pos.y - 0.7) + 0.13; P.vel.set(0, 0, 0);
+}
+function updateTubeWorld(dt, t) {
+  if (!TUBE.mesh) return;
+  const L = STREAM.lower;
+  if (TUBE.riding) {
+    const i0 = Math.min(L.length - 2, Math.floor(TUBE.i)), f = TUBE.i - i0, A = L[i0], B = L[i0 + 1];
+    const sp = lerp(A.speed, B.speed, f) * (TUBE.rider ? 0.85 + 0.35 * Math.max(0, input.my) : 0.8);
+    TUBE.i += (sp * dt) / 1.5;
+    const W = lerp(A.W, B.W, f), S = lerp(A.S, B.S, f), slope = lerp(A.slope, B.slope, f);
+    if (TUBE.rider) TUBE.o += input.mx * 1.6 * dt;
+    TUBE.o = clamp(TUBE.o * (1 - dt * 0.15), -(W - 1.1), W - 1.1);
+    const tx = lerp(A.tx, B.tx, f), tz = lerp(A.tz, B.tz, f), nx = -tz, nz = tx;
+    TUBE.x = lerp(A.x, B.x, f) + nx * TUBE.o; TUBE.z = lerp(A.z, B.z, f) + nz * TUBE.o;
+    const rap = smoothstep(0.02, 0.12, slope);
+    const y = S + Math.sin(t * 2.2) * 0.04 + Math.sin(t * 7.3) * 0.06 * rap;
+    TUBE.spin += (0.18 + rap * 1.6) * dt;
+    TUBE.mesh.position.set(TUBE.x, y - 0.06, TUBE.z);
+    TUBE.mesh.rotation.set(Math.sin(t * 3.1) * 0.08 * rap - slope * 1.2 * 0, TUBE.spin, Math.cos(t * 2.7) * 0.08 * rap, 'YXZ');
+    if (rap > 0.3 && FX.spawn && rng() < dt * 8 * rap) FX.splash(TUBE.x + rand(-0.6, 0.6), S, TUBE.z + rand(-0.6, 0.6), 0.35 + rap * 0.4);
+    if (TUBE.rider) {
+      P.pos.set(TUBE.x, y + 0.82, TUBE.z); P.camY = P.pos.y;
+      P.tubeRoll = Math.sin(t * 2.7) * 0.03 * (1 + rap * 2);
+      if (rap > 0.5 && FX.lens && rng() < dt * 1.2) FX.lens(2);
+    }
+    if (i0 >= L.length - 3 || S < 0.06) { // out into the sea
+      if (TUBE.rider) exitTube(true);
+      TUBE.riding = false; TUBE.away = t;
+    }
+  } else {
+    // bob where it was left; go home once nobody is near it
+    const away = TUBE.home && Math.hypot(TUBE.x - TUBE.home.x, TUBE.z - TUBE.home.z) > 3;
+    if (away && Math.hypot(P.pos.x - TUBE.x, P.pos.z - TUBE.z) > 60 && Math.hypot(P.pos.x - TUBE.home.x, P.pos.z - TUBE.home.z) > 40) { TUBE.x = TUBE.home.x; TUBE.z = TUBE.home.z; }
+    const w = waterAt(TUBE.x, TUBE.z);
+    const y = w.level + Math.sin(t * 1.3) * 0.03;
+    TUBE.mesh.position.set(TUBE.x, y - 0.06, TUBE.z); TUBE.mesh.rotation.set(Math.sin(t * 0.9) * 0.04, TUBE.spin + t * 0.05, Math.cos(t * 1.1) * 0.04, 'YXZ');
+    TUBE.seat.y = y;
+  }
+  TUBE.seat.x = TUBE.x; TUBE.seat.z = TUBE.z;
+}
+
+// ───────────────────── 28. Tools: a shovel for digging, a stick for writing ─────────────────────
+const TOOL = { cur: 'hands', aim: null, digT: 0, drawing: false, last: null, marker: null, vs: null, vm: {}, pen: false, scratch: 0 };
+const TOOL_LIST = ['hands', 'shovel', 'stick'];
+const TOOL_NAMES = { hands: 'Hands', shovel: 'Shovel', stick: 'Driftwood stick' };
+function setTool(name) {
+  TOOL.cur = name; TOOL.pen = false; TOOL.last = null;
+  if (TOOL.vm.shovel) { TOOL.vm.shovel.visible = name === 'shovel'; TOOL.vm.stick.visible = name === 'stick'; }
+  if (name === 'hands') showActivityHint('');
+  else showActivityHint(isTouch ? (name === 'shovel' ? 'Shovel: aim at the sand and tap Dig' : 'Stick: tap Draw, then look around to write in the sand')
+    : (name === 'shovel' ? 'Shovel · click (or F) to dig · Q to switch' : 'Stick · hold the mouse button (or F) and look around to write · Q to switch'), name !== 'hands');
+  updateToolButtons();
+}
+function cycleTool() { setTool(TOOL_LIST[(TOOL_LIST.indexOf(TOOL.cur) + 1) % TOOL_LIST.length]); }
+const _ad = new THREE.Vector3();
+function aimGround(maxD = 4.6) {
+  camera.getWorldDirection(_ad); const o = camera.position;
+  let prev = 0.25;
+  for (let t = 0.35; t <= maxD; t += 0.1) {
+    const x = o.x + _ad.x * t, y = o.y + _ad.y * t, z = o.z + _ad.z * t;
+    if (y <= groundHeight(x, z)) {
+      let a = prev, b = t;
+      for (let k = 0; k < 6; k++) { const m = (a + b) / 2; if (o.y + _ad.y * m <= groundHeight(o.x + _ad.x * m, o.z + _ad.z * m)) b = m; else a = m; }
+      return { x: o.x + _ad.x * b, y: o.y + _ad.y * b, z: o.z + _ad.z * b, t: b };
+    }
+    prev = t;
+  }
+  return null;
+}
+function buildTools() {
+  // a small ring that shows where the tool will touch the ground
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.09, 0.12, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4 }));
+  ring.visible = false; ring.renderOrder = 12; scene.add(ring); TOOL.marker = ring;
+  // first-person models live in their own little scene, drawn over the world
+  const vs = new THREE.Scene();
+  const hl = new THREE.HemisphereLight(0xffffff, 0x886644, 1), dl = new THREE.DirectionalLight(0xffffff, 2);
+  vs.add(hl, dl, dl.target);
+  const grp = new THREE.Group(); vs.add(grp);
+  const wood = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.5, 0.34, 0.2, THREE.SRGBColorSpace), roughness: 0.8 });
+  const steel = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.58, 0.6, 0.62, THREE.SRGBColorSpace), roughness: 0.38, metalness: 0.55 });
+  const drift = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.62, 0.58, 0.52, THREE.SRGBColorSpace), roughness: 0.95 });
+  const shovel = new THREE.Group();
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.019, 1.0, 10), wood); handle.position.y = 0.5; shovel.add(handle);
+  const grip = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.012, 6, 16, Math.PI), wood); grip.position.y = 1.03; grip.rotation.z = Math.PI; shovel.add(grip);
+  const bladeG = new THREE.PlaneGeometry(0.22, 0.28, 6, 4); const bp = bladeG.attributes.position;
+  for (let i = 0; i < bp.count; i++) { const x = bp.getX(i), y = bp.getY(i); bp.setZ(i, x * x * 1.6 + (y < -0.05 ? (y + 0.05) * 0.2 : 0)); bp.setX(i, x * (1 - Math.max(0, -y - 0.06) * 1.6)); }
+  bladeG.computeVertexNormals();
+  const blade = new THREE.Mesh(bladeG, new THREE.MeshStandardMaterial({ color: steel.color, roughness: 0.38, metalness: 0.55, side: THREE.DoubleSide })); blade.position.y = -0.12; shovel.add(blade);
+  const sock = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.03, 0.12, 8), steel); sock.position.y = 0.04; shovel.add(sock);
+  const stick = new THREE.Group();
+  const sg = new THREE.CylinderGeometry(0.012, 0.024, 0.95, 7, 6); const sp = sg.attributes.position;
+  for (let i = 0; i < sp.count; i++) { const y = sp.getY(i); sp.setX(i, sp.getX(i) + Math.sin(y * 4) * 0.02); sp.setZ(i, sp.getZ(i) + Math.sin(y * 7 + 1) * 0.012); }
+  sg.computeVertexNormals(); sg.translate(0, -0.475, 0);
+  stick.add(new THREE.Mesh(sg, drift));
+  const twig = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.008, 0.16, 5), drift); twig.position.set(0.03, -0.25, 0); twig.rotation.z = -0.7; stick.add(twig);
+  grp.add(shovel, stick); shovel.visible = stick.visible = false;
+  TOOL.vs = vs; TOOL.vm = { grp, shovel, stick, hl, dl };
+  buildWake();
+}
+const _tq = new THREE.Quaternion(), _tv = new THREE.Vector3(), _tm = new THREE.Matrix4();
+const SHOVEL_HOLD = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0.22, 0.12, 0.97).normalize());
+function updateTools(dt) {
+  const cur = TOOL.cur, ok = cur !== 'hands' && P.mode === 'walk' && started && !panelOpen;
+  TOOL.aim = ok ? aimGround() : null;
+  const a = TOOL.aim;
+  let can = null;
+  if (a) can = canDig(a.x, a.z);
+  if (TOOL.marker) {
+    TOOL.marker.visible = !!a;
+    if (a) { TOOL.marker.position.set(a.x, a.y + 0.02, a.z); TOOL.marker.material.color.setRGB(can ? 1 : 1, can ? 0.55 : 1, can ? 0.45 : 1); TOOL.marker.scale.setScalar(cur === 'shovel' ? 4.5 : 1); }
+  }
+  const use = input.use || TOOL.pen;
+  TOOL.digT = Math.max(0, TOOL.digT - dt);
+  if (cur === 'shovel' && ok) {
+    if ((input.use || input.usePressed) && TOOL.digT <= 0 && a) {
+      if (can) { showActivityHint(can === 'rock' ? 'Too rocky to dig here' : can === 'deep' ? 'Too deep to dig here' : can === 'wood' ? 'You can’t dig through wood' : 'Something is in the way', true, 1.6); TOOL.digT = 0.4; }
+      else { TOOL.digT = 0.62; TOOL.pending = { x: a.x, z: a.z, y: a.y, t: 0.26 }; }
+    }
+  }
+  if (TOOL.pending) {
+    TOOL.pending.t -= dt;
+    if (TOOL.pending.t <= 0) {
+      const p = TOOL.pending; TOOL.pending = null;
+      const rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw), fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
+      const removed = digAt(p.x, p.z, p.x + rx * 1.05 - fx * 0.15, p.z + rz * 1.05 - fz * 0.15);
+      if (removed > 0) {
+        if (AUDIO.dig) AUDIO.dig();
+        for (let i = 0; i < 10 * Q.particles + 4; i++) FX.spawn(p.x + rand(-0.2, 0.2), p.y + 0.05, p.z + rand(-0.2, 0.2), rx * rand(0.6, 1.6) + rand(-0.3, 0.3), rand(1.2, 2.6), rz * rand(0.6, 1.6) + rand(-0.3, 0.3), rand(0.5, 0.9), rand(0.025, 0.05), 3, 9.8);
+      }
+    }
+  }
+  if (cur === 'stick' && ok && use && a && !can) {
+    if (TOOL.last && Math.hypot(a.x - TOOL.last.x, a.z - TOOL.last.z) < 0.9) {
+      const d = Math.hypot(a.x - TOOL.last.x, a.z - TOOL.last.z);
+      if (d > 0.012) { carveStroke(TOOL.last.x, TOOL.last.z, a.x, a.z); TOOL.scratch = Math.min(1, TOOL.scratch + d * 6); TOOL.last = { x: a.x, z: a.z }; }
+    } else TOOL.last = { x: a.x, z: a.z };
+  } else TOOL.last = null;
+  TOOL.scratch = Math.max(0, TOOL.scratch - dt * 4);
+  if (AUDIO.scratch) AUDIO.scratch(TOOL.scratch);
+  input.usePressed = false;
+  // first-person model
+  const vm = TOOL.vm; if (!vm.grp) return;
+  vm.grp.visible = cur !== 'hands' && P.mode === 'walk';
+  if (!vm.grp.visible) return;
+  vm.grp.position.copy(camera.position); vm.grp.quaternion.copy(camera.quaternion);
+  vm.dl.color.copy(sun.color); vm.dl.intensity = sun.intensity; vm.dl.position.copy(camera.position).addScaledVector(U.uLightDir.value, 10); vm.dl.target.position.copy(camera.position); vm.dl.target.updateMatrixWorld();
+  vm.hl.color.copy(hemi.color); vm.hl.groundColor.copy(hemi.groundColor); vm.hl.intensity = hemi.intensity;
+  const bob = settings.headBob ? Math.sin(P.bob * 2) * 0.012 * P.bobAmt : 0, sway = Math.cos(P.bob) * 0.01 * P.bobAmt;
+  if (cur === 'shovel') {
+    const s = vm.shovel, ph = TOOL.digT > 0 ? 1 - TOOL.digT / 0.62 : 0;
+    const thrust = Math.sin(Math.min(1, ph / 0.42) * Math.PI) , toss = ph > 0.42 ? Math.sin((ph - 0.42) / 0.58 * Math.PI) : 0;
+    // held low and to the right, blade out in front; dig = push in, lever back, toss the sand right
+    s.position.set(0.21 + sway + toss * 0.12, -0.56 + bob - thrust * 0.12 + toss * 0.2, -1.15 - thrust * 0.3 + toss * 0.25);
+    s.quaternion.copy(SHOVEL_HOLD);
+    _tq.setFromEuler(new THREE.Euler(-thrust * 0.35 + toss * 0.5, 0, -toss * 0.9)); s.quaternion.multiply(_tq);
+  } else {
+    const s = vm.stick;
+    s.position.set(0.24 + sway, -0.34 + bob, -0.42);
+    if (a) { // point the stick at the spot it is drawing on
+      _tv.set(a.x, a.y, a.z); vm.grp.worldToLocal(_tv);
+      const dir = _tv.sub(s.position).normalize();
+      _tq.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir); s.quaternion.slerp(_tq, 1 - Math.exp(-dt * 14));
+      if (use) s.position.addScaledVector(dir, 0.08);
+    } else s.quaternion.slerp(_tq.setFromEuler(new THREE.Euler(-0.6, 0.1, 0.2)), 1 - Math.exp(-dt * 8));
+  }
+}
+function renderTools() {
+  if (!TOOL.vs || !TOOL.vm.grp || !TOOL.vm.grp.visible) return;
+  renderer.autoClear = false; renderer.clearDepth(); renderer.render(TOOL.vs, camera); renderer.autoClear = true;
+}
+// small hint line for the current activity
+let actHintT = 0, actSticky = '';
+// sticky hints stay up (the current tool); timed ones show for a moment, then the sticky one returns
+function showActivityHint(text, sticky = true, secs = 0) {
+  const el = $('act-hint'); if (!el) return;
+  clearTimeout(actHintT);
+  if (secs) { el.textContent = text; el.hidden = !text; actHintT = setTimeout(() => { el.textContent = actSticky; el.hidden = !actSticky; }, secs * 1000); return; }
+  if (sticky) actSticky = TOOL.cur !== 'hands' ? text : '';
+  el.textContent = text; el.hidden = !text;
+  if (!sticky || P.mode === 'boat' || P.mode === 'tube') actHintT = setTimeout(() => { el.textContent = actSticky; el.hidden = !actSticky; }, 7000);
+}
+function updateToolButtons() {
+  const tb = $('t-tool'), ub = $('t-use');
+  if (!tb) return;
+  tb.textContent = TOOL.cur === 'hands' ? 'Tools' : TOOL_NAMES[TOOL.cur].split(' ').pop().replace(/^./, c => c.toUpperCase());
+  ub.hidden = !(isTouch && TOOL.cur !== 'hands' && P.mode === 'walk');
+  ub.textContent = TOOL.cur === 'shovel' ? 'Dig' : (TOOL.pen ? 'Lift' : 'Draw');
+  ub.classList.toggle('down', TOOL.pen);
+}
+
 // ───────────────────── 30. Input: keyboard, mouse, touch ─────────────────────
 const $ = id => document.getElementById(id);
 let started = false, panelOpen = false, dragLook = isTouch, pointerLocked = false;
-const input = { mx: 0, my: 0, run: false, up: false, down: false, jump: false, lookX: 0, lookY: 0, interact: false };
+const input = { mx: 0, my: 0, run: false, up: false, down: false, jump: false, lookX: 0, lookY: 0, interact: false, use: false, usePressed: false, useMouse: false };
 const keys = new Set();
 const touch = { stickId: null, ox: 0, oy: 0, sx: 0, sy: 0, look: new Map(), up: false, down: false };
 addEventListener('keydown', e => {
@@ -3702,6 +4845,11 @@ addEventListener('keydown', e => {
   if (!e.repeat) {
     if (e.code === 'Space') input.jump = true;
     if (e.code === 'KeyE' || e.code === 'Enter') input.interact = true;
+    if (started && !panelOpen) {
+      if (e.code === 'KeyQ') cycleTool();
+      if (e.code === 'Digit1') setTool('hands'); if (e.code === 'Digit2') setTool('shovel'); if (e.code === 'Digit3') setTool('stick');
+      if (e.code === 'KeyF') input.usePressed = true;
+    }
     if (e.code === 'Escape' || e.code === 'KeyM' || e.code === 'Tab') { if (started) togglePanel(); }
   }
   keys.add(e.code);
@@ -3720,6 +4868,7 @@ function readKeys() {
   }
   input.mx = mx; input.my = my; input.run = run;
   input.up = k('Space') || touch.up; input.down = k('KeyC') || k('KeyZ') || touch.down;
+  input.use = k('KeyF') || input.useMouse || touch.use;
 }
 function lockPointer() {
   if (isTouch || dragLook) return;
@@ -3729,8 +4878,12 @@ function lockPointer() {
 document.addEventListener('pointerlockchange', () => { pointerLocked = document.pointerLockElement === canvas; showHint(); });
 document.addEventListener('pointerlockerror', () => { dragLook = true; showHint(); });
 let mouseDown = false;
-canvas.addEventListener('mousedown', e => { if (!started || panelOpen) return; mouseDown = true; if (!pointerLocked && !dragLook) lockPointer(); });
-addEventListener('mouseup', () => { mouseDown = false; });
+canvas.addEventListener('mousedown', e => {
+  if (!started || panelOpen) return; mouseDown = true;
+  if (pointerLocked && e.button === 0) { input.useMouse = true; input.usePressed = true; }
+  if (!pointerLocked && !dragLook) lockPointer();
+});
+addEventListener('mouseup', () => { mouseDown = false; input.useMouse = false; });
 addEventListener('mousemove', e => {
   if (!started || panelOpen) return;
   if (pointerLocked || (dragLook && mouseDown && !isTouch)) { input.lookX += e.movementX || 0; input.lookY += e.movementY || 0; }
@@ -3777,6 +4930,13 @@ const holdBtn = (el, prop, onPress) => {
 holdBtn($('t-up'), 'up', () => { input.jump = true; });
 holdBtn($('t-down'), 'down');
 $('t-act').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); input.interact = true; });
+$('t-tool').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); cycleTool(); });
+{
+  const ub = $('t-use');
+  ub.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (TOOL.cur === 'stick') { TOOL.pen = !TOOL.pen; updateToolButtons(); } else { touch.use = true; input.usePressed = true; ub.classList.add('down'); } });
+  const off = () => { touch.use = false; if (TOOL.cur !== 'stick') ub.classList.remove('down'); };
+  ub.addEventListener('pointerup', off); ub.addEventListener('pointercancel', off); ub.addEventListener('pointerleave', off);
+}
 
 // ───────────────────── 31. Player ─────────────────────
 const EYE = 1.62;
@@ -3793,13 +4953,20 @@ function supportHeight(x, z, feet) {
   for (const p of PLATFORMS) {
     const dx = x - p.x, dz = z - p.z, c = Math.cos(p.rot), s = Math.sin(p.rot);
     const lx = dx * c - dz * s, lz = dx * s + dz * c;
-    if (Math.abs(lx) <= p.hx && Math.abs(lz) <= p.hz && p.top <= feet + 0.5 && p.top > g) g = p.top;
+    if (Math.abs(lx) > p.hx || Math.abs(lz) > p.hz) continue;
+    const top = p.top + (p.arch ? p.arch * (1 - (lz / p.hz) ** 2) : 0);
+    if (top <= feet + 0.5 && top > g) g = top;
   }
   return g;
 }
 function waterAt(x, z) {
-  if (Math.hypot(x - POOL.x, z - POOL.z) < POOL.r + 0.6) return { level: POOL.level, kind: 'fresh' };
-  return { level: oceanHeight(x, z, U.uTime.value), kind: 'sea' };
+  if (Math.hypot(x - POOL.x, z - POOL.z) < POOL.r + 0.6) return { level: POOL.level, kind: 'fresh', fx: 0, fz: 0 };
+  if (Math.hypot(x - SPRING.x, z - SPRING.z) < SPRING.r + 0.3) return { level: SPRING.level, kind: 'fresh', fx: 0, fz: 0 };
+  const q = riverQuery(x, z);
+  if (q && q.d < q.W + 0.6 && q.S > 0.05) { const k = 1 - smoothstep(q.W * 0.6, q.W + 0.6, q.d) * 0.7; return { level: q.S, kind: 'river', fx: q.tx * q.speed * k, fz: q.tz * q.speed * k, q }; }
+  const sw = SAND.count ? sandWaterAt(x, z) : null;
+  if (sw) return { level: sw.level, kind: 'fresh', fx: sw.vx * 0.6, fz: sw.vz * 0.6 };
+  return { level: oceanHeight(x, z, U.uTime.value), kind: 'sea', fx: 0, fz: 0 };
 }
 function collide(x, z, feet) {
   COLLIDERS.query(x, z, 3, c => {
@@ -3816,6 +4983,8 @@ function blockedStep(x0, z0, x1, z1, g0, feet) {
 }
 function spawnPlayer() {
   P.pos.set(SPAWN.x, groundHeight(SPAWN.x, SPAWN.z) + EYE, SPAWN.z);
+  if (P.mode === 'boat' && P.boat) { P.boat.driving = false; P.boat.speed = 0; P.boat = null; }
+  if (P.mode === 'tube') { TUBE.rider = false; }
   P.vel.set(0, 0, 0); P.yaw = SPAWN.yaw; P.pitch = -0.05; P.mode = 'walk'; P.camY = P.pos.y; P.seat = null;
 }
 function updatePlayer(dt) {
@@ -3824,12 +4993,16 @@ function updatePlayer(dt) {
   P.yaw -= input.lookX * sens; P.pitch -= input.lookY * sens * (settings.invertY ? -1 : 1);
   input.lookX = input.lookY = 0;
   P.pitch = clamp(P.pitch, -1.52, 1.52);
+  P.dunk = Math.max(0, (P.dunk || 0) - dt * 1.1); P.shake = Math.max(0, (P.shake || 0) - dt * 2.5); P.stumble = Math.max(0, (P.stumble || 0) - dt * 1.6);
   if (P.mode === 'seat') return updateSeat(dt);
+  if (P.mode === 'boat') { updateBoatDrive(dt); input.jump = false; return; }
+  if (P.mode === 'tube') { P.water = waterAt(P.pos.x, P.pos.z); input.jump = false; return; }
   if (P.climb) return updateClimb(dt);
   let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
   const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
   const w = waterAt(P.pos.x, P.pos.z); P.water = w;
   if (P.mode === 'walk') walkStep(dt, w, mx, my, ml, fx, fz, rx, rz); else swimStep(dt, w, mx, my, ml, fx, fz, rx, rz);
+  checkWaveHit(dt);
   const r = Math.hypot(P.pos.x, P.pos.z);
   if (r > 1150) { const push = (r - 1150) * 0.6; P.pos.x -= (P.pos.x / r) * push * dt; P.pos.z -= (P.pos.z / r) * push * dt; }
   if (r > 1400) { P.pos.x *= 1400 / r; P.pos.z *= 1400 / r; }
@@ -3843,7 +5016,8 @@ function walkStep(dt, w, mx, my, ml, fx, fz, rx, rz) {
   const speed = (input.run ? 7.0 : 3.8) * lerp(1, 0.47, wade);
   const wx = (fx * my + rx * mx) * speed, wz = (fz * my + rz * mx) * speed;
   const acc = P.onGround ? 10 : 1.8;
-  P.vel.x = damp(P.vel.x, wx, acc, dt); P.vel.z = damp(P.vel.z, wz, acc, dt);
+  const cur = depth > 0.25 ? smoothstep(0.25, 1.2, depth) * 0.55 : 0;
+  P.vel.x = damp(P.vel.x, wx + (w.fx || 0) * cur, acc, dt); P.vel.z = damp(P.vel.z, wz + (w.fz || 0) * cur, acc, dt);
   if (P.onGround && input.jump && depth < 0.9) { P.vel.y = 5.4; P.onGround = false; }
   P.vel.y -= 21 * dt;
   let nx = P.pos.x + P.vel.x * dt, nz = P.pos.z + P.vel.z * dt;
@@ -3862,7 +5036,11 @@ function walkStep(dt, w, mx, my, ml, fx, fz, rx, rz) {
   else P.onGround = false;
   P.pos.y = f2 + EYE;
   const d2 = w.level - g2; P.depth = d2;
-  if (d2 > 1.38 && f2 < w.level - 1.1) { P.mode = 'swim'; P.vel.y = 0; if (FX.splash) FX.splash(P.pos.x + fx, w.level, P.pos.z + fz, 1.2); if (AUDIO.splash) AUDIO.splash(1); }
+  if (d2 > 1.38 && f2 < w.level - 1.1) {
+    const fall = clamp(-P.vel.y / 8, 0.4, 2.2);
+    P.mode = 'swim'; P.vel.y = Math.max(P.vel.y * 0.25, -4); if (FX.splash) FX.splash(P.pos.x + fx, w.level, P.pos.z + fz, 0.8 + fall); if (AUDIO.splash) AUDIO.splash(Math.min(1.6, fall));
+    if (fall > 1) { P.dunk = 0.8; if (FX.bubbles) FX.bubbles(P.pos.x, w.level - 1, P.pos.z, 14); }
+  }
   // footsteps, head bob, splashes in the shallows
   const sp = Math.hypot(P.vel.x, P.vel.z);
   P.bobAmt = damp(P.bobAmt, P.onGround ? clamp(sp / 4, 0, 1.6) : 0, 8, dt);
@@ -3874,7 +5052,7 @@ function walkStep(dt, w, mx, my, ml, fx, fz, rx, rz) {
     const surf = d2 > 0.04 ? 'water' : surfaceType(P.pos.x, P.pos.z, f2);
     if (AUDIO.step) AUDIO.step(surf, input.run, d2);
     if (surf === 'water' && FX.splash) FX.splash(P.pos.x + fx * 0.5 + rx * (P.foot ? 0.15 : -0.15), w.level, P.pos.z + fz * 0.5 + rz * (P.foot ? 0.15 : -0.15), 0.35 + clamp(d2, 0, 0.8));
-    if (surf === 'sand' && FX.footprint) FX.footprint(P.pos.x + rx * (P.foot ? 0.13 : -0.13), P.pos.z + rz * (P.foot ? 0.13 : -0.13), P.yaw);
+    if (surf === 'sand' && FX.footprint) FX.footprint(P.pos.x + rx * (P.foot ? 0.13 : -0.13), P.pos.z + rz * (P.foot ? 0.13 : -0.13), P.yaw, !P.foot);
   }
 }
 function surfaceType(x, z, feet) {
@@ -3887,6 +5065,7 @@ function surfaceType(x, z, feet) {
 }
 function swimStep(dt, w, mx, my, ml, fx, fz, rx, rz) {
   const surf = w.level;
+  if (surf < P.pos.y - 1.5) { P.mode = 'walk'; P.onGround = false; P.vel.y = 0.4; return; } // swept over the edge of the falls
   const ly = Math.sin(P.pitch), lh = Math.cos(P.pitch);
   const under = P.pos.y < surf - 0.32;
   const diveLook = P.pitch < -0.42 && my > 0.1;
@@ -3903,7 +5082,7 @@ function swimStep(dt, w, mx, my, ml, fx, fz, rx, rz) {
     if (!input.up && !input.down && ml < 0.05) wy += 0.65;
     P.vel.y = damp(P.vel.y, wy, 3.2, dt);
   }
-  P.vel.x = damp(P.vel.x, wx, 3.2, dt); P.vel.z = damp(P.vel.z, wz, 3.2, dt);
+  P.vel.x = damp(P.vel.x, wx + (w.fx || 0) * 0.92, 3.2, dt); P.vel.z = damp(P.vel.z, wz + (w.fz || 0) * 0.92, 3.2, dt);
   let nx = P.pos.x + P.vel.x * dt, nz = P.pos.z + P.vel.z * dt;
   [nx, nz] = collide(nx, nz, P.pos.y - 0.8);
   P.pos.x = nx; P.pos.z = nz;
@@ -3921,7 +5100,7 @@ function swimStep(dt, w, mx, my, ml, fx, fz, rx, rz) {
     if (AUDIO.stroke) AUDIO.stroke(under);
   }
   if (under && FX.bubbles && rng() < dt * (0.6 + sp * 0.8)) FX.bubbles(P.pos.x + fx * 0.25, P.pos.y - 0.15, P.pos.z + fz * 0.25, 1 + (rng() * 3 | 0));
-  if (surf - gg < 1.18 && P.pos.y > surf - 0.6 && w.kind !== 'fresh-deep') { P.mode = 'walk'; P.pos.y = gg + EYE; P.vel.y = 0; P.onGround = true; }
+  if (surf - gg < 1.18 && P.pos.y > surf - 0.6) { P.mode = 'walk'; P.pos.y = Math.max(gg + EYE, Math.min(P.pos.y, gg + EYE)); P.vel.y = 0; P.onGround = true; }
 }
 function tryClimbOut() {
   for (const p of PLATFORMS) {
@@ -3945,11 +5124,15 @@ function updateClimb(dt) {
 // sitting
 function nearestInteract() {
   if (P.mode === 'seat') return { label: P.seat.standLabel || 'Stand up', short: 'Stand', stand: true };
-  if (P.mode !== 'walk') return null;
+  if (P.mode === 'boat') return { label: 'Get out of the boat', short: 'Get out', exitBoat: true };
+  if (P.mode === 'tube') return { label: 'Get off the tube', short: 'Get off', exitTube: true };
+  if (P.mode !== 'walk' && P.mode !== 'swim') return null;
   let best = null, bd = 1e9;
   for (const it of INTERACT) {
+    if (P.mode === 'swim' && !it.anyMode) continue;
     const d = Math.hypot(P.pos.x - it.x, P.pos.z - it.z);
-    if (d < (it.r || 2.2) && d < bd && Math.abs((P.pos.y - EYE) - it.y) < 2.2) { best = it; bd = d; }
+    const yOk = it.anyMode || Math.abs((P.pos.y - EYE) - it.y) < 2.2;
+    if (d < (it.r || 2.2) && d < bd && yOk) { best = it; bd = d; }
   }
   return best;
 }
@@ -3985,9 +5168,15 @@ function updateCamera(dt) {
   if (settings.headBob && P.mode === 'walk') { bobY = Math.sin(P.bob * 2) * 0.032 * P.bobAmt; bobX = Math.cos(P.bob) * 0.022 * P.bobAmt; }
   if (P.mode === 'swim') roll = Math.sin(P.t * 0.9) * (P.pos.y < P.water.level - 0.3 ? 0.012 : 0.022);
   if (P.mode === 'seat' && P.seat.sway) roll = Math.sin(P.t * 0.9 + 1.2) * 0.03;
+  if (P.mode === 'tube') roll = P.tubeRoll || 0;
+  if (P.mode === 'boat' && P.boat) roll = P.boat.roll * 0.8;
+  let dy = 0, pitchOff = 0;
+  if (P.dunk > 0) { const k = Math.sin(P.dunk * Math.PI); dy -= k * 0.75; roll += Math.sin(P.dunk * 9) * 0.25 * k; pitchOff += Math.sin(P.dunk * 7) * 0.2 * k; }
+  if (P.stumble > 0) { roll += Math.sin(P.stumble * 11) * 0.12 * P.stumble; }
+  if (P.shake > 0) { dy += (rng() - 0.5) * 0.08 * P.shake; pitchOff += (rng() - 0.5) * 0.04 * P.shake; }
   const rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
-  camera.position.set(P.pos.x + rx * bobX, P.camY + bobY, P.pos.z + rz * bobX);
-  camera.rotation.set(P.pitch, P.yaw, roll);
+  camera.position.set(P.pos.x + rx * bobX, (P.mode === 'boat' || P.mode === 'tube' ? P.pos.y : P.camY) + bobY + dy, P.pos.z + rz * bobX);
+  camera.rotation.set(P.pitch + pitchOff + (P.mode === 'boat' && P.boat ? P.boat.pitch * 0.8 : 0), P.yaw, roll);
 }
 // slow drift over the beach behind the title screen
 function introCamera(t) {
@@ -4081,10 +5270,16 @@ function updatePrompt() {
   if (it) {
     promptText.textContent = it.label; promptEl.hidden = isTouch;
     actBtn.textContent = it.short || 'Sit'; actBtn.hidden = !isTouch;
-    if (input.interact) { if (it.stand) stand(); else if (it.kind === 'boat' && typeof boardBoat === 'function') boardBoat(it); else sit(it); }
+    if (input.interact) {
+      if (it.stand) stand(); else if (it.exitBoat) exitBoat(); else if (it.exitTube) { exitTube(false); TUBE.riding = true; }
+      else if (it.kind === 'drive') boardBoat(it); else if (it.kind === 'tube') startTube(); else sit(it);
+      updateToolButtons();
+    }
   } else { promptEl.hidden = true; actBtn.hidden = true; }
   input.interact = false;
   $('t-down').hidden = !(isTouch && P.mode === 'swim');
+  $('t-tool').hidden = !(isTouch && (P.mode === 'walk'));
+  if (isTouch) updateToolButtons();
 }
 
 // ───────────────────── 34. Main loop ─────────────────────
@@ -4111,9 +5306,15 @@ function frame(now) {
   updateShadowFrame(started ? P.pos : camera.position);
   slowTick -= dt;
   if (slowTick <= 0) { slowTick = 0.25; for (const f of FIELDS) f.update(camera.position); if (started) checkDiscoveries(); }
-  updateBoats(sim); updateSeaLife(dt, sim); updateWildlife(dt, sim); FX.update(dt, sim);
+  if (started) updateTools(dt);
+  updateSand(dt, sim);
+  updateBoats(sim); updateTubeWorld(dt, sim); updateWake(dt, sim);
+  updateSeaLife(dt, sim); updateWildlife(dt, sim); FX.update(dt, sim); FX.updateLens(dt);
+  if (P.wasUnder && !under && started) FX.lens(18 + (rng() * 12 | 0));
+  P.wasUnder = under;
   if (AUDIO.update) AUDIO.update(dt);
   renderer.render(scene, camera);
+  renderTools();
   // adaptive resolution keeps phones smooth
   warm += dt; fpsT += dt; fpsN++;
   if (fpsT > 2.5) {
@@ -4135,6 +5336,7 @@ async function boot(saved) {
   U.uNoiseTex.value = makeNoiseTexture(); SKY.uCloudTex.value = makeCloudTexture(); WATER.uNormTex.value = makeWaterNormalTexture();
   await buildTerrainData(progress);
   buildTerrainMesh();
+  buildRiverChunks();
   buildSky(); buildOcean(); buildFreshwater();
   layoutPlaces();
   progress(0.62); await nextFrame();
@@ -4145,6 +5347,7 @@ async function boot(saved) {
   buildSeaLife();
   buildWildlife();
   FX.build();
+  buildTools();
   finishVegetation();
   if (typeof applyLifeQuality === 'function') applyLifeQuality();
   progress(0.88); await nextFrame();
@@ -4183,7 +5386,8 @@ if (hot && hot.snapshot) { try { hot.snapshot(() => ({ x: P.pos.x, y: P.pos.y, z
 const startBoot = data => boot(data || {}).catch(err => { console.error(err); fatal('Something went wrong while building the island: ' + (err && err.message ? err.message : err)); });
 if (hot && hot.ready) hot.ready(startBoot); else startBoot(hot && hot.data);
 // small handle for poking at the island from the browser console
-window.__bp = { P, ENV, WX, settings, begin, camera, renderer, scene, spawnPlayer, groundHeight, PLACES, SPAWN, applyQuality, POOL, STREAM, FIELDS, INTERACT, input, keys, sit, U, updatePlayer, readKeys, waterAt, LAYOUT, SEA, PLATFORMS, updatePrompt };
+window.__bp = { P, ENV, WX, settings, begin, camera, renderer, scene, spawnPlayer, groundHeight, PLACES, SPAWN, applyQuality, POOL, STREAM, FIELDS, INTERACT, input, keys, sit, U, updatePlayer, readKeys, waterAt, LAYOUT, SEA, PLATFORMS, updatePrompt,
+  SAND, digAt, carveStroke, stampFoot, updateSand, riverQuery, BOATS, TUBE, boardBoat, exitBoat, startTube, setTool, TOOL, updateTools, aimGround, updateTubeWorld, sandWaterAt, SPRING };
 </script>
 </body>
 </html>

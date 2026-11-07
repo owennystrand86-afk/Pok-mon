@@ -31,6 +31,10 @@ It needs WebGL 2 and an internet connection the first time (for three.js and the
 | Jump / swim up | `Space` | ▲ button |
 | Dive / swim down | `C` (or look down and swim forward) | ▼ button while swimming |
 | Sit, lie down, stand up | `E` near a chair, towel, bench, hammock, rock or the dock | The button that appears |
+| Drive the motorboat | `E` beside it, then `W`/`S` throttle, `A`/`D` steer, `Shift` full speed, `E` to get out | Joystick, Get out button |
+| Ride the river on the inner tube | `E` beside the tube at the waterfall pool, `A`/`D` steer, `W` paddle | Joystick, Get off button |
+| Tools | `Q` switches between hands, shovel and stick (or `1` `2` `3`) | Tools button |
+| Dig / write | Click (or hold `F`) to dig with the shovel; hold and look around to write with the stick | Dig button, or Draw to start and stop writing |
 | Settings | `Esc`, `M` or the button in the top-right corner | Button in the top-right corner |
 
 If the browser does not allow the mouse to be captured (some embedded viewers), hold the mouse
@@ -54,8 +58,17 @@ Settings are remembered in your browser.
 - A wide west-facing main beach where you arrive, with beach chairs, a towel, a sandcastle and a
   dock with a rowboat. The sun sets over the sea in front of it.
 - A sea with rolling swell, waves that break and wash up the sand, foam, wet sand that dries
-  as the water drains away, and clear shallows over a coral garden full of fish.
-- A jungle with a waterfall dropping into a pool you can swim in, and a stream running down to the beach.
+  as the water drains away, and clear shallows over a coral garden full of fish. Every couple
+  of minutes a set of bigger waves rolls in; they break over you, push you toward the beach and
+  splash water onto the screen.
+- A river that rises in a spring on the plateau, pours over the cliff as a thick, aerated waterfall
+  into a jungle pool, then widens all the way to the sea. It is deep enough to swim in, and its
+  current carries you downstream (and over the falls if you let it). A footbridge crosses it.
+- A motorboat at the dock that rides over the swell, catches air off waves, leaves a wake and
+  can't be driven onto the sand, and an inner tube at the pool for floating the river to the sea.
+- A shovel and a driftwood stick. Holes near the sea fill with groundwater, a channel dug from the
+  sea or the river fills and flows (and slowly erodes and slumps like real sand), and you can write
+  in the sand. Waves wash writing, footprints and dug sand away again near the water.
 - Places to find on your own: a hidden cove with a hammock, a summit lookout with a bench, a ring
   of palms around a clearing, a sea arch, a small island across the lagoon and tide pools on the
   rocky east shore.
@@ -73,13 +86,17 @@ The whole game is `index.html`. The script is organised in numbered sections:
 5. Procedural textures
 6. Island terrain: coastline field, beaches, mountains, waterfall cliff, stream, pool, trail, tide pools
 7. Sky dome with clouds, sun, moon, stars and rainbow
-8. Ocean, pool, stream and waterfall shaders
+8. Ocean, pools, river and waterfall shaders
 9–13. Vegetation: chunked instancing, wind animation, canvas-drawn leaf textures
-14–17. Places, props and rocks
+14–17. Places, props (dock, motorboat, inner tube, footbridge) and rocks
 18–19. Coral, seagrass and fish
 20. Time of day, lighting and weather
 21–22. Wildlife and effects
 23. Synthesized sound
+24. Living sand: 32 m chunks at 0.5 m resolution that refine the island where the river runs and
+    where you dig, a small shallow-water simulation (pipe model) fed by the river, the sea and
+    groundwater with erosion and sand slumping, and a 7 cm texture for footprints and writing
+25–28. Waves that hit you, the motorboat, the inner tube ride, and the shovel and stick
 30–35. Input, player (walking, wading, swimming, diving, sitting), camera, interface, main loop
 
 The sea surface the player swims in is computed with the same wave maths on the CPU as in the
