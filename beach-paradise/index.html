@@ -425,7 +425,7 @@ scene.add(camera);
 
 // ──────────────────── 4. Shared uniforms and shader code ────────────────────
 // breaker heights for 16 consecutive waves (repeating every ~2 minutes); a set of three big ones rolls in each cycle
-const SURF_TABLE = Array.from({ length: 16 }, (_, i) => 0.16 + 0.3 * mulberry32(700 + i * 13)());
+const SURF_TABLE = Array.from({ length: 16 }, (_, i) => 0.27 + 0.32 * mulberry32(700 + i * 13)());
 SURF_TABLE[4] = 0.74; SURF_TABLE[5] = 1.02; SURF_TABLE[6] = 0.86; SURF_TABLE[12] = 0.66;
 for (let i = 0; i < 16; i++) SURF_TABLE[i] *= 1.3; // peaks along a crest are taller, shoulders lower (see surfVar)
 const U = {
@@ -1709,6 +1709,7 @@ function buildOcean() {
           // tsunami: a boiling white crest, churned water behind it, brown flood water on land
           float flood = smoothstep(0.0, -0.5, depth) * smoothstep(0.05, 0.4, vTsu);
           float tsN = vTsuS * smoothstep(0.3, 2.0, vTsu);
+          famt *= 1.0 - smoothstep(0.6, 2.5, vTsu) * (1.0 - flood);   // the everyday surf doesn't draw on a tsunami's face
           famt = max(famt, smoothstep(0.94, 0.995, vTsuS) * step(-12.0, vTsuP) * smoothstep(0.8, 2.5, vTsu));
           famt = max(famt, vTsuF * smoothstep(0.72, 0.95, vTsuS) * 1.1);
           famt = max(famt, smoothstep(-6.0, -40.0, vTsuP) * smoothstep(0.5, 1.5, vTsu) * 0.55);
@@ -1884,13 +1885,14 @@ function freshMaterial(flowing) {
           float line1 = texture2D(uNoiseTex, vec2(vUv.x * 7.0, vUv.y * 0.11 - uTime * spd * 0.07)).a;
           float line2 = texture2D(uNoiseTex, vec2(vUv.x * 13.0 + 0.4, vUv.y * 0.2 - uTime * spd * 0.11)).r;
           float lines = smoothstep(0.8, 0.93, line1) * 0.28 + smoothstep(0.84, 0.95, line2) * 0.18;
-          float strk = texture2D(uFoamTex, vec2(vUv.x * 2.6, vUv.y * 0.32 - uTime * spd * 0.1)).r * 0.6 + texture2D(uFoamTex, vec2(vUv.x * 5.3 + 0.3, vUv.y * 0.7 - uTime * spd * 0.16)).g * 0.5;
+          float strk = texture2D(uFoamTex, vec2(vUv.x * 2.6, vUv.y * 0.55 - uTime * spd * 0.1)).r * 0.6 + texture2D(uFoamTex, vec2(vUv.x * 5.3 + 0.3, vUv.y * 1.1 - uTime * spd * 0.16)).g * 0.5;
           float amt = rap * 0.55 + smoothstep(0.18, 0.0, thick) * 0.25;
           float thr = 1.05 - amt;
-          float foam = max(smoothstep(thr - 0.05, thr + 0.12, strk) * clamp(amt * 3.0, 0.0, 1.0) * 0.85, lines * (0.35 + 0.65 * vFlow) * (1.0 - rap));` : `
+          float foam = max(smoothstep(thr - 0.16, thr + 0.2, strk) * clamp(amt * 3.0, 0.0, 1.0) * 0.8, lines * (0.35 + 0.65 * vFlow) * (1.0 - rap));` : `
           float foam = foamMask(vWPos.xz * 1.2, churn * 1.1, vec2(uTime * 0.02, -uTime * 0.015) + normalize(vWPos.xz - uRipple.xy + 1e-3) * uTime * 0.0) * 0.9;`}
           foam = clamp(max(foam, foamMask(vWPos.xz, rp.z, vec2(0.0))), 0.0, 0.92);
-          body = mix(body, vec3(0.32, 0.55, 0.5) * uWaterLight, clamp(${flowing ? 'smoothstep(0.55, 0.95, vFoamA) * 0.5' : 'churn * 0.5'}, 0.0, 1.0));
+          // water full of air bubbles goes milky, so the white of a chute fades into it instead of ending in hard lines
+          body = mix(body, vec3(0.5, 0.7, 0.64) * uWaterLight, clamp(${flowing ? 'smoothstep(0.5, 0.95, vFoamA) * 0.7' : 'churn * 0.5'}, 0.0, 1.0));
           vec3 spec = uSpecCol * (pow(sp, 500.0) * 3.0 + pow(sp, 60.0) * 0.12 + pow(sp, 2000.0) * 5.0) * (1.0 - foam);
           col = body * (1.0 - Tr) * (1.0 - F) + refl * F + spec;
           alpha = 1.0 - Tr * (1.0 - F);
@@ -9153,7 +9155,7 @@ const TOOL_HINTS = {
   stick: ['Stick · hold the mouse button (or F) and look around to write · Q to switch', 'Stick: tap Draw, then look around to write in the sand'],
   rod: ['Fishing rod · hold the mouse button (or F) to wind up a cast · J for your fish journal', 'Fishing rod: hold Cast to wind up, let go to throw'],
   surfboard: ['Surfboard · wade or swim out and click (or F) to hop on · Space stands you up on a wave', 'Surfboard: wade out and tap Hop on'],
-  lantern: ['Storm lantern · click (or F) to light it or put it out · near the boat, click to hang it up · L for the boat\'s headlights', 'Lantern: tap Light to light it, or Hang near the boat'],
+  lantern: ['Lantern · click (or F) to light or put out · by the boat, click to hang it up', 'Lantern: tap Light, or Hang it on the boat'],
 };
 function setTool(name) {
   TOOL.cur = name; TOOL.pen = false; TOOL.last = null;
