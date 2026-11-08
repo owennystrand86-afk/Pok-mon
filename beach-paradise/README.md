@@ -40,9 +40,10 @@ It needs WebGL 2 and an internet connection the first time (for three.js and the
 | Door and windows | Look at the cabin door or a window and press `E` to open or close it | The button that appears |
 | Fly the biplane | `E` beside it on the beach, then `W`/`S` throttle, mouse or arrow keys for the stick (pull back to climb), `A`/`D` roll; land gently on the wheels and press `E` to climb out | Joystick for the stick (push forward to dive), ▲▼ throttle, drag to look around |
 | Drive the submarine | `E` beside it at the dock, then `W`/`S` drive, `A`/`D` turn, `Space` rise, `C` dive, `X` sonar, `L` lights, `E` to open the hatch | Joystick, ▲▼ to rise and dive, Sonar button |
-| Drive the motorboat | `E` beside it, then `W`/`S` throttle, `A`/`D` steer, `Shift` full speed, `E` to get out. Drive up the river from the sea and straight at the bottom of the waterfall to climb it | Joystick, Get out button |
+| Drive the motorboat | `E` beside it, then `W`/`S` throttle, `A`/`D` steer, `Shift` full speed, `L` headlights, `E` to stand up on the deck (or step onto the dock). Walk around the deck, jump over the side to swim, `E` near the helm to drive again; from the water, swim up to the boat and press `Space` to climb aboard. Drive up the river from the sea and straight at the bottom of the waterfall to climb it | Joystick, Lights button, Get out button |
 | Ride the river on the inner tube | `E` beside the tube at the waterfall pool, `A`/`D` steer, `W` paddle | Joystick, Get off button |
-| Tools | `Q` switches between hands, shovel, bucket, stick, fishing rod and surfboard (or `1`–`6`); in the boat, between hands and the rod | Tools button |
+| Tools | `Q` switches between hands, shovel, bucket, stick, fishing rod, surfboard and storm lantern (or `1`–`7`); in the boat, between hands, the rod and the lantern | Tools button |
+| Lantern | With the lantern (`7`): click (or `F`, or `L`) to light it or put it out. On or beside the boat, click to hang it from the T-top; `E` beside it (or click again with the lantern selected) takes it back | Light / Hang / Take button |
 | Surf | With the surfboard (`6`): wade or swim out and click (or `F`) to hop on, `W` paddle, `A`/`D` turn; when a wave picks you up press `Space` to stand, then `A`/`D` carve, `W` pump, `S` slow, `C` lie back down, `E` get off | Hop on button, joystick, ▲ to stand, ▼ to lie down |
 | Fish | With the rod: hold the mouse button (or `F`) to wind up a cast and let go to throw; click when the bobber dips; hold to reel and ease off when the line goes red | Cast, then Reel |
 | Fish journal | `J` | Settings, Fish journal |
@@ -88,7 +89,11 @@ Settings are remembered in your browser.
 - A wide west-facing main beach in front of it, with beach chairs, a towel, a sandcastle and a
   dock with a rowboat. The sun sets over the sea in front of it.
 - A sea with rolling swell and breaking waves that peak and peel along their crests instead of
-  arriving as straight walls, washing up the sand, and clear shallows over a coral garden full of
+  arriving as straight walls. Each wave slows and bunches up as the water shallows, grows taller,
+  steepens until its glassy face glows green-blue, pitches its lip forward and throws spray, then
+  rolls in as a churning white bore that tears into patches and lace and rushes up the sand. The
+  sea's mesh is pinned to the world and gets finer around you, so the waves never shimmer or pop
+  as you move. Clear shallows over a coral garden full of
   fish. You see the sand and coral through the water, bent by the waves; foam breaks
   up into lace and bubbles as it thins; the sun glitters on the ripples. Around you the water
   really moves: swimming, wading, the boat, splashes and raindrops all leave rings and foam, and
@@ -96,7 +101,9 @@ Settings are remembered in your browser.
   waves rolls in; they break over you, push you toward the beach and splash water onto the screen.
 - A river that rises in a spring on the plateau, pours over the cliff as a thick, aerated waterfall
   into a jungle pool, then runs down to the sea as a mountain stream: calm, clear pools where you
-  can see the bottom, each spilling into the next down a short white cascade. It is deep enough to swim in, and its
+  can see the bottom, each spilling into the next down a short white cascade. The ripples
+  stream along with the current, slow boils drift down the calm runs, and standing waves hold
+  still in the chutes while the water races through them. It is deep enough to swim in, and its
   current carries you downstream (and over the falls if you let it). A footbridge crosses it.
 - A six-metre centre-console motorboat at the dock. You can drive it up the river from the sea
   (the banks steer you back to the middle) and, if you hit the bottom of the falls fast, it climbs
@@ -104,10 +111,17 @@ Settings are remembered in your browser.
   stripes, a teak deck, a T-top, stainless rails, gauges, a wheel and throttle that move, navigation
   lights and an outboard whose propeller spins. It floats on eight points along its hull, so it
   pitches and rolls over the swell, leans into turns, rises onto the plane, catches air off waves
-  and slams back down; the sea never shows inside the hull. An inner tube waits at the pool for
-  floating the river to the sea.
+  and slams back down; the sea never shows inside the hull. Its deck is solid: stand up from the
+  helm and walk around the console while it rolls under you, step down onto it from the dock, or
+  climb back aboard from the water. Two headlights on the bow light up the sea ahead at night,
+  with beams you can see in the mist and rain. An inner tube waits at the pool for floating the
+  river to the sea.
+- A storm lantern to carry at night: its flame flickers and lights the sand, the trees and the
+  water around you, glinting on the ripples. Hang it from the boat's T-top and it swings with the
+  boat as it rolls. Other players see your lantern and your headlights too.
 - Tsunamis on request: far out the sea rises, the water drains back off the beach and exposes the
-  seabed, then a wall of water with a white crest breaks over the sand, knocks you over, sweeps you
+  seabed, then the swell steepens as it reaches the shallows into a wall of water with a
+  tumbling white roller on its crest that breaks over the sand, knocks you over, sweeps you
   and the boat inland and floods the low ground with churning brown water before it drains away.
   It scours the land it runs over (the beach can be planed down to almost sea level), snaps palms
   and trees into pieces (trunks, fronds, branches, coconuts) that tumble and float away on the
