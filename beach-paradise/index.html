@@ -513,7 +513,7 @@ vec3 applyFog(vec3 col, vec3 wp, float mul){
 }
 float surfOff(vec2 p){ return 0.18 * sin(p.x * 0.0041 + p.y * 0.0063) + 0.12 * sin(p.y * 0.0131 - p.x * 0.0077 + 1.7) + 0.07 * sin(p.x * 0.021 - p.y * 0.017) + 0.045 * sin(p.x * 0.009 + p.y * 0.026 + 2.0); }
 // each wave is taller in some places than others along its crest: peaks and shoulders, never a wall
-float surfVar(vec2 p, float nn){ return 0.56 + 0.28 * sin(dot(p, vec2(0.031, 0.022)) + nn * 2.3) + 0.16 * sin(dot(p, vec2(-0.017, 0.043)) + nn * 1.1 + 1.3); }
+float surfVar(vec2 p, float nn){ return 0.7 + 0.2 * sin(dot(p, vec2(0.031, 0.022)) + nn * 2.3) + 0.1 * sin(dot(p, vec2(-0.017, 0.043)) + nn * 1.1 + 1.3); }
 // The surf, wave by wave. Each wave rolls in along the depth contours, slowing as the water gets
 // shallow (so the crests bunch up), growing taller as it shoals, and breaking once its crest is about
 // half the depth: first a lip that pitches forward, then a white bore that runs to the sand and
@@ -526,19 +526,19 @@ float surfAt(vec2 p, float depth, float cL, out vec4 s){
   float n = floor(psi), g = psi - n;
   float Hb = mix(surfAmpN(p, n), surfAmpN(p, n + 1.0), smoothstep(0.5, 0.78, g));
   float zk = max(1.0, uSurfAmp * 0.75);
-  float zone = depth > 0.0 ? smoothstep(14.0 * zk, 3.5 * zk, depth) * smoothstep(-85.0 * zk, -35.0, cL) : 1.0;
-  float db = Hb / 0.55 + 0.25, r = d / db;
-  float brk = 1.0 - smoothstep(0.68, 1.0, r);
-  float plunge = smoothstep(1.12, 0.94, r) * smoothstep(0.6, 0.82, r);
-  float aUn = Hb * min(1.0, pow(max(r, 1e-3), -0.25));
-  float aBr = min(Hb * 0.7, 0.35 * Hb + 0.04 + 0.3 * d);
+  float zone = depth > 0.0 ? smoothstep(16.0 * zk, 4.0 * zk, depth) * smoothstep(-100.0 * zk, -40.0, cL) : 1.0;
+  float db = Hb / 0.7 + 0.2, r = d / db;
+  float brk = 1.0 - smoothstep(0.75, 1.0, r);
+  float plunge = smoothstep(1.1, 0.95, r) * smoothstep(0.62, 0.85, r);
+  float aUn = Hb * mix(0.5, 1.0, smoothstep(3.5, 1.0, r));
+  float aBr = Hb * (0.35 + 0.45 * clamp(r, 0.0, 1.0)) + 0.03;
   float a = mix(aUn, aBr, brk) * zone;
-  float wf = mix(mix(0.34, 0.13, smoothstep(2.4, 1.0, r)), mix(0.3, 0.08, smoothstep(0.0, 0.6, d)), brk);
-  float steep = clamp(smoothstep(2.0, 1.0, r) + brk, 0.0, 1.0), sh;
-  if (g > 1.0 - wf) { float x = (g - 1.0 + wf) / wf; sh = mix(x * x * (3.0 - 2.0 * x), x * x, steep); }
-  else { float x = g / (1.0 - wf); sh = mix(1.0 - x * x * (3.0 - 2.0 * x), pow(1.0 - x, 1.4), brk); }
+  float wf = mix(mix(0.38, 0.12, smoothstep(2.5, 1.0, r)), mix(0.32, 0.09, smoothstep(0.0, 0.5, d)), brk);
+  float steep = clamp(smoothstep(2.2, 1.0, r) + brk, 0.0, 1.0), sh;
+  if (g > 1.0 - wf) { float x = (g - 1.0 + wf) / wf; sh = mix(x * x * (3.0 - 2.0 * x), pow(x, 2.4), steep); }
+  else { float x = g / (1.0 - wf); sh = mix(1.0 - x * x * (3.0 - 2.0 * x), pow(1.0 - x, 1.3), brk); }
   s = vec4(g, a, brk * zone, plunge * zone);
-  return a * (sh - mix(0.2, 0.12, brk));
+  return a * (sh - mix(0.2, 0.1, brk));
 }
 float surfAt(vec2 p, float depth, out vec4 s){ return surfAt(p, depth, coastL(p), s); }
 float causticPat(vec2 p){
@@ -1110,7 +1110,7 @@ function makeTerrainMaterial(tile) {
       sandW = max(sandW, dug * (1.0 - rockW));
       // wet sand: darkest where the last wave reached, drying as the water drains away
       float psiW = uTime / 8.5 + surfOff(wp.xz); float nW = floor(psiW); float gW = psiW - nW;
-      float reach = (0.35 * surfAmpN(wp.xz, nW) + 0.04) * 0.88 + 0.04;
+      float reach = (0.35 * surfAmpN(wp.xz, nW) + 0.03) * 0.9 + 0.04;
       float sheen = exp(-gW * 2.6);
       float tWet = smoothstep(reach + 0.06, reach - 0.06, wp.y) * (0.55 + 0.45 * sheen);
       tWet = max(tWet, smoothstep(0.85, 0.08, wp.y) * 0.55);
@@ -1371,7 +1371,7 @@ function applyWaterStyle() {
 }
 const SURF_P = 8.5;
 const surfOffJS = (x, z) => 0.18 * Math.sin(x * 0.0041 + z * 0.0063) + 0.12 * Math.sin(z * 0.0131 - x * 0.0077 + 1.7) + 0.07 * Math.sin(x * 0.021 - z * 0.017) + 0.045 * Math.sin(x * 0.009 + z * 0.026 + 2.0);
-const surfVarJS = (x, z, nn) => 0.56 + 0.28 * Math.sin(x * 0.031 + z * 0.022 + nn * 2.3) + 0.16 * Math.sin(-x * 0.017 + z * 0.043 + nn * 1.1 + 1.3);
+const surfVarJS = (x, z, nn) => 0.7 + 0.2 * Math.sin(x * 0.031 + z * 0.022 + nn * 2.3) + 0.1 * Math.sin(-x * 0.017 + z * 0.043 + nn * 1.1 + 1.3);
 const surfAmpJS = (x, z, m) => SURF_TABLE[((m % 16) + 16) % 16] * U.uSurfAmp.value * surfVarJS(x, z, m);
 const surfPsiJS = (x, z, depth, t) => t / SURF_P + surfOffJS(x, z) + 1.25 * (Math.sqrt(Math.max(depth, 0) + 0.04) - 0.2);
 // the surf at (x,z): the same maths as surfAt() in the shaders. Fills o with the phase g, the crest
@@ -1382,20 +1382,20 @@ function surfState(x, z, depth, t, o = SURF_S) {
   const n = Math.floor(psi), g = psi - n;
   const Hb = lerp(surfAmpJS(x, z, n), surfAmpJS(x, z, n + 1), smoothstep(0.5, 0.78, g));
   const zk = Math.max(1, U.uSurfAmp.value * 0.75);
-  const zone = depth > 0 ? smoothstep(14 * zk, 3.5 * zk, depth) * smoothstep(-85 * zk, -35, coastAt(x, z)) : 1;
-  const db = Hb / 0.55 + 0.25, r = d / db;
-  const brk = 1 - smoothstep(0.68, 1, r);
-  const plunge = smoothstep(1.12, 0.94, r) * smoothstep(0.6, 0.82, r);
-  const aUn = Hb * Math.min(1, Math.pow(Math.max(r, 1e-3), -0.25));
-  const aBr = Math.min(Hb * 0.7, 0.35 * Hb + 0.04 + 0.3 * d);
+  const zone = depth > 0 ? smoothstep(16 * zk, 4 * zk, depth) * smoothstep(-100 * zk, -40, coastAt(x, z)) : 1;
+  const db = Hb / 0.7 + 0.2, r = d / db;
+  const brk = 1 - smoothstep(0.75, 1, r);
+  const plunge = smoothstep(1.1, 0.95, r) * smoothstep(0.62, 0.85, r);
+  const aUn = Hb * lerp(0.5, 1, smoothstep(3.5, 1, r));
+  const aBr = Hb * (0.35 + 0.45 * clamp(r, 0, 1)) + 0.03;
   const a = lerp(aUn, aBr, brk) * zone;
-  const wf = lerp(lerp(0.34, 0.13, smoothstep(2.4, 1, r)), lerp(0.3, 0.08, smoothstep(0, 0.6, d)), brk);
-  const steep = clamp(smoothstep(2, 1, r) + brk, 0, 1);
+  const wf = lerp(lerp(0.38, 0.12, smoothstep(2.5, 1, r)), lerp(0.32, 0.09, smoothstep(0, 0.5, d)), brk);
+  const steep = clamp(smoothstep(2.2, 1, r) + brk, 0, 1);
   let sh;
-  if (g > 1 - wf) { const q = (g - 1 + wf) / wf; sh = lerp(q * q * (3 - 2 * q), q * q, steep); }
-  else { const q = g / (1 - wf); sh = lerp(1 - q * q * (3 - 2 * q), Math.pow(1 - q, 1.4), brk); }
-  o.g = g; o.a = a; o.brk = brk * zone; o.plunge = plunge * zone; o.Hb = Hb * zone; o.n = n;
-  return a * (sh - lerp(0.2, 0.12, brk));
+  if (g > 1 - wf) { const q = (g - 1 + wf) / wf; sh = lerp(q * q * (3 - 2 * q), Math.pow(q, 2.4), steep); }
+  else { const q = g / (1 - wf); sh = lerp(1 - q * q * (3 - 2 * q), Math.pow(1 - q, 1.3), brk); }
+  o.g = g; o.a = a; o.brk = brk * zone; o.plunge = plunge * zone; o.Hb = Hb * zone; o.n = n; o.r = r;
+  return a * (sh - lerp(0.2, 0.1, brk));
 }
 function surfJS(x, z, depth, t) { return surfState(x, z, depth, t); }
 // tsunami: the same profile as tsunamiH() in the shaders
@@ -1601,7 +1601,7 @@ function buildOcean() {
         #endif
         // a plunging wave's crest pitches forward over its own face
         float lipM = smoothstep(0.9, 0.99, ss.x) + 1.0 - smoothstep(0.0, 0.08, ss.x);
-        disp.xz += shore * ss.y * 0.55 * ss.w * lipM;
+        disp.xz += shore * ss.y * 0.7 * ss.w * lipM;
         // the broken wave's roller churns and heaves
         if (ss.z > 0.01) {
           float roll = ss.z * (smoothstep(0.86, 0.99, ss.x) + 1.0 - smoothstep(0.0, 0.25, ss.x));
@@ -1674,7 +1674,7 @@ function buildOcean() {
         float roll = brk * (smoothstep(0.86, 0.99, g) + 1.0 - smoothstep(0.0, 0.2, g));
         float glassy = smoothstep(0.7, 0.97, g) * (1.0 - smoothstep(0.985, 1.0, g)) * smoothstep(0.12, 0.5, aS) * (1.0 - brk);
         float detail = 0.3 * fadeD * (1.0 - 0.6 * glassy) * (1.0 + 1.2 * roll);
-        vec3 N = normalize(Nb + vec3(n1.x + n2.x * 0.7 + n3.x * 0.45 * fine, 0.0, n1.y + n2.y * 0.7 + n3.y * 0.45 * fine) * detail);
+        vec3 N = normalize(Nb + vec3(n1.x + n2.x * 0.7 + n3.x * 0.3 * fine, 0.0, n1.y + n2.y * 0.7 + n3.y * 0.3 * fine) * detail);
         if (uRain > 0.02) N = normalize(N + rainRipple(vWPos.xz) * 0.35 * uRain * fadeD);
         vec3 rp = ripple(vWPos.xz);
         N = normalize(N + vec3(-rp.x, 0.0, -rp.y));
@@ -1691,17 +1691,17 @@ function buildOcean() {
           // whitewater: the lip as it pitches, the roller riding the front of the broken wave, then lace
           // that stretches and thins behind it; small waves barely whiten at all
           float aK = smoothstep(0.05, 0.32, aS);
-          // large drifting patches and a ragged edge, so no band of foam is ever a clean stripe
-          float pA = texture2D(uNoiseTex, vWPos.xz * 0.031 + fl * 0.6).r, pB = texture2D(uNoiseTex, vWPos.xz * 0.11 - fl * 1.3).g;
-          float gj = g + (pB - 0.5) * 0.06 + (pA - 0.5) * 0.04;
-          float lipF = pl * smoothstep(0.93, 0.99, fract(gj)) * aK;
-          // the roller is a narrow band of solid white on the very front; behind it the foam
-          // sheet tears into patches and lace that drift and thin out
-          float gr2 = fract(gj);
-          float rollF = brk * (smoothstep(0.95, 0.995, gr2) + 1.0 - smoothstep(0.02, 0.1, gr2));
-          float sheet = brk * (1.0 - smoothstep(0.03, 0.5, gr2)) * smoothstep(0.3, 0.75, pA * 0.65 + pB * 0.55) * (0.5 + 0.4 * fB);
-          float trail = brk * (1.0 - smoothstep(0.25, 0.95, gr2)) * 0.3 * smoothstep(0.45, 0.8, pB * 0.6 + fB * 0.5);
-          float famt = max(lipF * 1.15, rollF * (0.6 + 0.4 * aK) * (0.8 + 0.35 * fA));
+          // whitewater: the crest feathering white as a wave starts to spill, the lip as it pitches, the roller
+          // riding the front of the broken wave, then a web of lace that stretches and thins behind it
+          float pB = texture2D(uNoiseTex, vWPos.xz * 0.11 - fl * 1.3).g;
+          float gj = fract(g + (pB - 0.5) * 0.035);
+          float steepQ = aS / max(uLevel - hc0.x, 0.1);                       // crest height over depth: ~0.7 when it breaks
+          float spill = smoothstep(0.93, 0.99, gj) * smoothstep(0.36, 0.56, steepQ) * smoothstep(0.25, 0.6, aS) * (1.0 - brk) * 0.75;
+          float lipF = pl * smoothstep(0.9, 0.99, gj) * aK;
+          float rollF = brk * (smoothstep(0.93, 0.99, gj) + 1.0 - smoothstep(0.0, 0.13, gj));
+          float sheet = brk * (1.0 - smoothstep(0.1, 0.5, gj)) * (0.45 + 0.25 * fB);
+          float trail = brk * (1.0 - smoothstep(0.4, 0.95, gj)) * 0.24;
+          float famt = max(max(lipF * 1.2, spill), rollF * (0.75 + 0.25 * aK) * (0.9 + 0.2 * fA));
           famt = max(famt, sheet * aK) + trail * aK;
           famt = max(famt, (1.0 - smoothstep(0.0, 0.6, g)) * smoothstep(0.35, -0.4, depth) * 0.6);     // the swash running up the sand
           famt += smoothstep(0.3, 0.75, vCrest) * uWhitecaps * smoothstep(4.0, 10.0, depth) * (0.4 + 0.6 * fA);
@@ -1733,7 +1733,7 @@ function buildOcean() {
             float pt = smoothstep(rad, 0.0, length(fract(gq) - cpos)) * min(1.0, 0.05 / rad) * min(1.0, 0.05 / rad);
             float tw = max(0.0, sin(uTime * (2.0 + 3.0 * h3) + h1 * 40.0));
             float path = pow(max(dot(normalize(reflect(-V, normalize(Nb + vec3(n2.x, 0.0, n2.y) * 0.5))), uLightDir), 0.0), 18.0);
-            glit += step(0.9, h3) * pt * tw * tw * path * 14.0 * fine * smoothstep(-0.02, 0.06, uLightDir.y); }
+            glit += step(0.955, h3) * pt * tw * tw * path * 10.0 * fine * smoothstep(-0.02, 0.06, uLightDir.y); }
           vec3 spec = uSpecCol * glit * (1.0 - foam);
           float path = max(thick, 0.0) / max(V.y, 0.12);
           float Tr = exp(-path * (0.15 * uClarity + flood * 1.4));
@@ -1742,11 +1742,11 @@ function buildOcean() {
           body = mix(body, uDeep, smoothstep(5.0, 26.0, dEff));
           float backlit = pow(max(dot(-V, uSunDir), 0.0), 2.0);
           // light passing through the thin tops of waves
-          body += uShallow * 0.3 * smoothstep(0.05, 0.45, vCrest) * backlit;
+          body += mix(uShallow, uMid, 0.4) * 0.16 * smoothstep(0.1, 0.6, vCrest) * backlit;
           // the face of a steep wave glows green-blue where the light shines through it
           float face = smoothstep(0.72, 0.96, g) * (1.0 - smoothstep(0.988, 1.0, g)) * smoothstep(0.1, 0.55, aS) * (1.0 - 0.5 * brk);
-          body = mix(body, mix(uShallow, uMid, 0.35) * 1.05, face * 0.4);
-          body += uShallow * face * 0.22 * backlit * smoothstep(0.0, 0.3, uLightDir.y);
+          body = mix(body, mix(uShallow, uMid, 0.5), face * 0.35);
+          body += mix(uShallow, uMid, 0.3) * face * 0.12 * backlit * smoothstep(0.0, 0.3, uLightDir.y);
           Tr *= 1.0 - face * 0.3;
           // milky turquoise where foam has churned air into the water
           body = mix(body, uShallow * 1.15 + 0.05, clamp(famt, 0.0, 1.0) * 0.35 * (1.0 - flood));
@@ -1763,8 +1763,8 @@ function buildOcean() {
           float lit = clamp(dot(N, uLightDir) * 0.5 + 0.5, 0.0, 1.0);
           // whitewater has relief: bright tumbling tops, bluish shadowed hollows, little glinting bubbles
           float fRel = texture2D(uFoamTex, vWPos.xz * 0.7 + fl * 4.0).g * 0.6 + texture2D(uNoiseTex, vWPos.xz * 0.35 - fl * 2.0).b * 0.5;
-          vec3 foamC = uFoamCol * (0.66 + 0.24 * lit) * mix(vec3(0.8, 0.9, 0.96), vec3(1.0), smoothstep(0.2, 0.8, foam));
-          foamC *= 0.8 + 0.38 * fRel * smoothstep(0.3, 0.9, famt);
+          vec3 foamC = uFoamCol * (0.84 + 0.16 * lit) * mix(vec3(0.86, 0.94, 0.98), vec3(1.0), smoothstep(0.2, 0.8, foam));
+          foamC *= 0.9 + 0.2 * fRel * smoothstep(0.4, 0.95, famt);
           col = mix(col, foamC, foam); alpha = mix(alpha, 1.0, foam);
           col += llWater(vWPos, N, V, body, foam);
           float edge = smoothstep(0.0, 0.07, thick);
@@ -10485,7 +10485,7 @@ const startBoot = data => boot(data || {}).catch(err => { console.error(err); fa
 if (hot && hot.ready) hot.ready(startBoot); else startBoot(hot && hot.data);
 // small handle for poking at the island from the browser console
 window.__bp = { updateSeaLife, P, ENV, WX, settings, begin, camera, renderer, scene, spawnPlayer, groundHeight, PLACES, SPAWN, applyQuality, POOL, STREAM, FIELDS, INTERACT, input, keys, sit, U, updatePlayer, readKeys, waterAt, LAYOUT, SEA, PLATFORMS, updatePrompt,
-  applyWaterStyle, updateCamera, FX, WFX, SPRAY, OLOD, updateOceanLOD, surfState, Q, LIGHTS, DECK, useLantern, takeLantern, toggleHeadlights, standOnDeck, deckTopAt, deckClimbFrom, updateLights, splashAt, rippleDrop, supportHeight, applyShovelPower, updateBoats, boatPhysics, updateTsunami, updateCabin, BUCKET, wetArea, SURF, startSurf, updateSurf, endSurf, surfAtJS, TREEFALL, breakTree, allTrees, blastTrees, updateTreefall, unhideTrees, VEG, PLANE, SUB, TRENCH, boardPlane, exitPlane, updatePlane, resetPlane, planeExplode, boardSub, exitSub, updateSub, setSonar, subDepth, implode, ANIMALS, updateBigAnimals, showHeldFish, FISHING, FISH, rollFish, hookFish, landFish, habitatAt, toggleJournal, updateFishing, WXFX, strike, updateWeatherFX, CABIN, WALLS, TSU, DESTROY, destroyCabin, repairIsland, flushTerrain, tsunamiErode, updateDestruction, sendTsunami, calmSea, insideCabin, cabinToWorld, worldToCabin, startSleep, cabinAction, nearestInteract, oceanHeight, tsunamiJS, pourAt, scoopAt, returnBoat,
+  applyWaterStyle, updateCamera, FX, WFX, SPRAY, OLOD, updateOceanLOD, surfState, Q, LIGHTS, DECK, applyQuality, useLantern, takeLantern, toggleHeadlights, standOnDeck, deckTopAt, deckClimbFrom, updateLights, splashAt, rippleDrop, supportHeight, applyShovelPower, updateBoats, boatPhysics, updateTsunami, updateCabin, BUCKET, wetArea, SURF, startSurf, updateSurf, endSurf, surfAtJS, TREEFALL, breakTree, allTrees, blastTrees, updateTreefall, unhideTrees, VEG, PLANE, SUB, TRENCH, boardPlane, exitPlane, updatePlane, resetPlane, planeExplode, boardSub, exitSub, updateSub, setSonar, subDepth, implode, ANIMALS, updateBigAnimals, showHeldFish, FISHING, FISH, rollFish, hookFish, landFish, habitatAt, toggleJournal, updateFishing, WXFX, strike, updateWeatherFX, CABIN, WALLS, TSU, DESTROY, destroyCabin, repairIsland, flushTerrain, tsunamiErode, updateDestruction, sendTsunami, calmSea, insideCabin, cabinToWorld, worldToCabin, startSleep, cabinAction, nearestInteract, oceanHeight, tsunamiJS, pourAt, scoopAt, returnBoat,
   SAND, digAt, carveStroke, stampFoot, updateSand, riverQuery, BOATS, TUBE, boardBoat, exitBoat, startTube, setTool, TOOL, updateTools, aimGround, updateTubeWorld, sandWaterAt, SPRING };
 
 // ───────────────────── 36. Multiplayer ─────────────────────
