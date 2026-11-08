@@ -282,7 +282,7 @@ body.touch #hud{top:calc(env(safe-area-inset-top,0px) + 60px);transform:scale(.8
     </section>
     <section>
       <h3>Sea</h3>
-      <div class="row slider"><label for="s-waves">Wave size</label><span class="val" id="v-waves"></span><input type="range" id="s-waves" min="0.2" max="2.6" step="0.05"></div>
+      <div class="row slider"><label for="s-waves">Wave size</label><span class="val" id="v-waves"></span><input type="range" id="s-waves" min="0.2" max="6" step="0.05"></div>
       <div class="row"><label for="s-tsu">Tsunami size</label>
         <select id="s-tsu"><option value="small">Small, about 4 m</option><option value="big">Big, about 7 m</option><option value="huge">Huge, about 11 m</option><option value="mega">Mega, about 20 m</option><option value="extinction">Island killer, about 34 m</option></select></div>
       <div class="row slider"><label for="s-tsuspeed">Tsunami speed</label><span class="val" id="v-tsuspeed"></span><input type="range" id="s-tsuspeed" min="0.5" max="3" step="0.1"></div>
@@ -505,7 +505,8 @@ float surfAt(vec2 p, float depth, out float g, out float amp){
   float nn = g > 0.7 ? n + 1.0 : n;
   int idx = int(mod(nn, 16.0));
   amp = uSurfTable[idx] * uSurfAmp * surfVar(p, nn);
-  float zone = depth > 0.0 ? smoothstep(5.0, 1.2, depth) * smoothstep(-85.0, -35.0, coastL(p)) : 1.0;
+  float zk = max(1.0, uSurfAmp * 0.75);   // big waves start breaking further out
+  float zone = depth > 0.0 ? smoothstep(5.0 * zk, 1.2, depth) * smoothstep(-85.0 * zk, -35.0, coastL(p)) : 1.0;
   return amp * surfShape(g) * zone;
 }
 float causticPat(vec2 p){
@@ -1343,7 +1344,8 @@ function surfJS(x, z, depth, t) {
   const n = Math.floor(psi), g = psi - n, nn = g > 0.7 ? n + 1 : n;
   const amp = SURF_TABLE[((nn % 16) + 16) % 16] * U.uSurfAmp.value * surfVarJS(x, z, nn);
   const f = smoothstep(0.78, 1, g), shape = Math.max(f * f * (1.6 - 0.6 * f), 1 - smoothstep(0, 0.6, g));
-  const zone = depth > 0 ? smoothstep(5, 1.2, depth) * smoothstep(-85, -35, coastAt(x, z)) : 1;
+  const zk = Math.max(1, U.uSurfAmp.value * 0.75);
+  const zone = depth > 0 ? smoothstep(5 * zk, 1.2, depth) * smoothstep(-85 * zk, -35, coastAt(x, z)) : 1;
   return amp * shape * zone;
 }
 // tsunami: the same profile as tsunamiH() in the shaders
@@ -1540,8 +1542,9 @@ function buildOcean() {
           float ampN = clamp((amp - 0.12) / 0.34, 0.0, 1.0);
           // the breaking lip, the white bore just behind it, then lace that thins out as it spreads
           float crestF = smoothstep(0.88, 0.99, g) + (1.0 - smoothstep(0.0, 0.12, g)) * 0.8 + (1.0 - smoothstep(0.0, 0.75, g)) * 0.28;
-          float cL = coastL(vWPos.xz), coastK = smoothstep(-85.0, -35.0, cL);
-          float breakZone = smoothstep(4.2, 0.9, depth) * smoothstep(-0.7, 0.3, depth) * coastK;
+          float cL = coastL(vWPos.xz), coastK = smoothstep(-85.0 * max(1.0, uSurfAmp * 0.75), -35.0, cL);
+          float zkF = max(1.0, uSurfAmp * 0.75);
+          float breakZone = smoothstep(4.2 * zkF, 0.9, depth) * smoothstep(-0.7, 0.3, depth) * coastK;
           float famt = crestF * breakZone * (0.45 + 0.6 * ampN) * (0.7 + 0.6 * fB);
           famt += (1.0 - smoothstep(0.0, 0.9, g)) * smoothstep(6.5, 2.0, depth) * 0.14 * coastK;   // lace spreading out behind the break
           famt = max(famt, (1.0 - smoothstep(0.0, 0.7, g)) * smoothstep(0.5, -0.45, depth) * 0.75); // the swash running up the sand
@@ -5921,6 +5924,187 @@ function updateSub(dt) {
   $('hud-sspeed').textContent = Math.abs(SUB.speed * 1.94).toFixed(1);
 }
 
+// ───────────────────── 16e. Surfing ─────────────────────
+// Pick the surfboard from your tools (Q), wade or swim out, and hop on. Lie down and paddle out
+// past the break, turn toward the beach as a wave comes, paddle to catch it, and stand up
+// (Space) once it has you. Standing, you carve with A/D (or the joystick): angle along the wave to
+// ride it, head straight down and you'll outrun it or nose-dive, get caught by the lip and you
+// wipe out. Works anywhere there are waves; the bigger the waves, the faster the ride.
+const SURF = {
+  mesh: null, x: 0, z: 0, y: 0, yaw: 0, vx: 0, vz: 0, stand: false, roll: 0, pitch: 0, stallT: 0,
+  ride: 0, best: 0, caught: false, sprayT: 0, paddleT: 0, onFace: 0, lastG: 0,
+};
+function surfboardGeometry(len = 2.15, wid = 0.56) {
+  // outline: a rounded nose and a squash tail, extruded and bevelled into a rail
+  const sh = new THREE.Shape(), N = 24, pts = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N, z = (t - 0.5) * len;
+    const w = wid / 2 * (t < 0.62 ? Math.pow(Math.sin(Math.PI * 0.5 * Math.min(1, t / 0.62)), 0.55) : Math.pow(Math.cos(Math.PI * 0.5 * (t - 0.62) / 0.38), 0.75) * 0.98 + 0.02);
+    pts.push([w * (t < 0.03 ? 0.75 : 1), z]);
+  }
+  sh.moveTo(-pts[0][0], pts[0][1]);
+  for (const [w, z] of pts) sh.lineTo(-w, z);
+  for (let i = pts.length - 1; i >= 0; i--) sh.lineTo(pts[i][0], pts[i][1]);
+  const g = new THREE.ExtrudeGeometry(sh, { depth: 0.035, bevelEnabled: true, bevelThickness: 0.018, bevelSize: 0.02, bevelSegments: 3, curveSegments: 6, steps: 1 });
+  g.rotateX(Math.PI / 2); g.translate(0, 0.0, 0);
+  // rocker: the nose and tail lift
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { const z = p.getZ(i), t = z / (len / 2); p.setY(i, p.getY(i) + (t > 0 ? t * t * 0.18 : t * t * 0.06)); }
+  g.computeVertexNormals();
+  // colours: white with a teal stripe down the deck and a dark rail band
+  const col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), z = p.getZ(i), y = p.getY(i);
+    let c = [0.95, 0.94, 0.9];
+    if (Math.abs(x) < 0.05) c = [0.1, 0.55, 0.6];
+    if (Math.abs(x) > 0.13 && Math.abs(x) < 0.16 && z < 0.7) c = [0.95, 0.5, 0.18];
+    col.set(c, i * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+function buildSurf() {
+  const mat = patch(new THREE.MeshPhysicalMaterial({ vertexColors: true, roughness: 0.25, clearcoat: 0.8, clearcoatRoughness: 0.15 }), { key: 'surfboard' });
+  const grp = new THREE.Group();
+  const board = new THREE.Mesh(surfboardGeometry(), mat); board.castShadow = true; board.receiveShadow = true; grp.add(board);
+  const fin = new THREE.Mesh(prep(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0.75), new THREE.Vector3(0, -0.14, 0.92), new THREE.Vector3(0, 0, 0.98)]).setIndex([0, 1, 2, 0, 2, 1]), [0.12, 0.12, 0.13]), propMatDouble);
+  fin.geometry.computeVertexNormals(); grp.add(fin);
+  // a leash coiled at the tail
+  const leash = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.008, 6, 16).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x1a1a1c }));
+  leash.position.set(0, 0.045, 1.0); grp.add(leash);
+  grp.visible = false; scene.add(grp); SURF.mesh = grp;
+  // carried under your arm while it's your tool
+  const vm = TOOL.vm; if (!vm.grp) return;
+  const carry = new THREE.Group();
+  const cb = new THREE.Mesh(surfboardGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3 }));
+  cb.rotation.set(0, 0, Math.PI / 2); cb.scale.setScalar(0.8); carry.add(cb);
+  carry.position.set(0.72, -0.62, -0.75); carry.rotation.set(0.15, 0.32, 0.08);
+  carry.visible = false; vm.grp.add(carry); vm.surfboard = carry;
+}
+// the surf at a point: where in the wave cycle (g), how big this wave is here (amp), and the push
+function surfAtJS(x, z, t) {
+  const depth = -groundHeight(x, z);
+  const psi = t / SURF_P + surfOffJS(x, z) + Math.max(depth, 0) * 0.42;
+  const n = Math.floor(psi), g = psi - n, nn = g > 0.7 ? n + 1 : n;
+  const amp = SURF_TABLE[((nn % 16) + 16) % 16] * U.uSurfAmp.value * surfVarJS(x, z, nn);
+  const zk = Math.max(1, U.uSurfAmp.value * 0.75);
+  const zone = depth > 0 ? smoothstep(5 * zk, 1.2, depth) * smoothstep(-85 * zk, -35, coastAt(x, z)) : 1;
+  return { g, amp: amp * zone, depth };
+}
+function canSurfHere() {
+  if (P.mode === 'swim') return true;
+  if (P.mode === 'walk' && P.depth > 0.4) return true;
+  return false;
+}
+function startSurf() {
+  if (!canSurfHere()) { showActivityHint('Wade out into deeper water first', true, 1.8); return; }
+  P.mode = 'surf';
+  SURF.x = P.pos.x; SURF.z = P.pos.z; SURF.yaw = P.yaw; SURF.vx = P.vel.x * 0.5; SURF.vz = P.vel.z * 0.5;
+  SURF.stand = false; SURF.ride = 0; SURF.caught = false; SURF.stallT = 0;
+  SURF.y = waterAt(SURF.x, SURF.z).level;
+  SURF.mesh.visible = true;
+  if (AUDIO.splash) AUDIO.splash(0.35);
+  showActivityHint(isTouch ? 'Joystick: paddle and turn · ▲ to stand up on a wave · Get off with the button' : 'W paddle · A/D turn · Space stand up when a wave picks you up · E get off');
+}
+function endSurf(toSwim = true, wiped = false) {
+  SURF.mesh.visible = false;
+  const w = waterAt(SURF.x, SURF.z), g = groundHeight(SURF.x, SURF.z);
+  if (!toSwim || w.level - g < 1.1) { P.mode = 'walk'; P.pos.set(SURF.x, Math.max(g, w.level - 1.0) + EYE, SURF.z); P.onGround = false; }
+  else { P.mode = 'swim'; P.pos.set(SURF.x, w.level - (wiped ? 1.2 : 0.1), SURF.z); }
+  P.vel.set(SURF.vx * 0.4, 0, SURF.vz * 0.4); P.camY = P.pos.y;
+  if (SURF.ride > 3) { SURF.best = Math.max(SURF.best, SURF.ride); toast(`${SURF.ride.toFixed(1)} s ride`, SURF.ride >= SURF.best ? 'Your best yet' : `Best ${SURF.best.toFixed(1)} s`); }
+  SURF.ride = 0; SURF.stand = false;
+  if (TOOL.cur === 'surfboard') showActivityHint(TOOL_HINTS.surfboard[isTouch ? 1 : 0], true);
+}
+function wipeout(why) {
+  SURF.lastEnd = why;
+  P.dunk = 1; P.shake = 0.8; if (FX.lens) FX.lens(30);
+  splashAt(SURF.x, SURF.y, SURF.z, 1.6); if (AUDIO.waveHit) AUDIO.waveHit(1.0);
+  if (FX.bubbles) FX.bubbles(SURF.x, SURF.y - 1, SURF.z, 14);
+  showActivityHint(why, true, 2.4);
+  endSurf(true, true);
+}
+const _sv = new THREE.Vector3();
+function updateSurf(dt) {
+  const t = U.uTime.value, x = SURF.x, z = SURF.z;
+  const w = waterAt(x, z), sea = w.kind === 'sea';
+  const lvl = w.level, gnd = groundHeight(x, z);
+  // the water's slope under the board
+  const e = 0.7, hx = sea ? (oceanHeight(x + e, z, t) - oceanHeight(x - e, z, t)) / (2 * e) : 0, hz = sea ? (oceanHeight(x, z + e, t) - oceanHeight(x, z - e, t)) / (2 * e) : 0;
+  const sd = seaDir(x, z), shx = -sd.x, shz = -sd.z;           // toward the beach
+  const sa = sea ? surfAtJS(x, z, t) : { g: 0.5, amp: 0, depth: lvl - gnd };
+  const onFace = sa.amp > 0.22 && sa.g > 0.72 && sa.g < 0.995;
+  const white = sa.amp > 0.22 && sa.g < 0.22;
+  const faceK = onFace ? smoothstep(0.72, 0.9, sa.g) : 0;
+  SURF.onFace = damp(SURF.onFace, faceK, 6, dt);
+  const fx = -Math.sin(SURF.yaw), fz = -Math.cos(SURF.yaw), rx = Math.cos(SURF.yaw), rz = -Math.sin(SURF.yaw);
+  const st = SURF.stand;
+  let mx = input.mx, my = input.my;
+  // forces
+  let ax = -9.8 * hx * (st ? 1.1 : 0.6), az = -9.8 * hz * (st ? 1.1 : 0.6);
+  if (!st && my > 0.05) { ax += fx * 2.4 * my; az += fz * 2.4 * my; SURF.paddleT += dt * (1 + my); if (SURF.paddleT > 0.55) { SURF.paddleT = 0; if (AUDIO.stroke) AUDIO.stroke(false); rippleDrop(x + rx * 0.4, z + rz * 0.4, 0.3, 0.06, 0.15); rippleDrop(x - rx * 0.4, z - rz * 0.4, 0.3, 0.06, 0.15); } }
+  // the wave picks you up and drives you toward the beach while you're on its face; white water shoves you in
+  const push = SURF.onFace * sa.amp * (st ? 5.2 : 3.4) + (white ? sa.amp * (st ? 2.0 : 3.0) : 0);
+  ax += shx * push; az += shz * push;
+  if (st) { ax += fx * Math.max(0, my) * 1.2; az += fz * Math.max(0, my) * 1.2; }      // pumping
+  ax += (w.fx || 0) * 0.6; az += (w.fz || 0) * 0.6;
+  SURF.vx += ax * dt; SURF.vz += az * dt;
+  // the fin and rails: sideways slip is turned into forward speed when you carve
+  let fwd = SURF.vx * fx + SURF.vz * fz, side = SURF.vx * rx + SURF.vz * rz;
+  const grip = st ? 7 : 2.5, side2 = side * Math.exp(-grip * dt);
+  fwd += Math.abs(side - side2) * (st ? 0.55 : 0.1) * Math.sign(fwd || 1);
+  fwd *= Math.exp(-(st ? 0.1 + Math.max(0, -my) * 0.8 : 0.9) * dt); fwd -= fwd * Math.abs(fwd) * 0.004 * dt;
+  SURF.vx = fx * fwd + rx * side2; SURF.vz = fz * fwd + rz * side2;
+  // turning
+  const sp = Math.hypot(SURF.vx, SURF.vz);
+  const yr = -mx * (st ? 1.0 + Math.min(sp, 6) * 0.15 - Math.max(0, sp - 8) * 0.05 : 1.4);
+  SURF.yaw += yr * dt;
+  SURF.roll = damp(SURF.roll, st ? clamp(-yr * sp * 0.05, -0.5, 0.5) : Math.sin(t * 1.3) * 0.03, 6, dt);
+  SURF.x += SURF.vx * dt; SURF.z += SURF.vz * dt;
+  // riding onto the sand
+  const g2 = groundHeight(SURF.x, SURF.z), lv2 = waterAt(SURF.x, SURF.z).level;
+  if (lv2 - g2 < 0.22) { SURF.lastEnd = 'beach'; showActivityHint(st ? 'You rode it all the way in!' : 'Washed up on the beach', true, 2); endSurf(false); return; }
+  SURF.y = lv2;
+  // standing up: once a wave has you moving
+  SURF.caught = SURF.onFace > 0.35 && fwd > 2.2 && (fx * shx + fz * shz) > 0.2;
+  if (!st) {
+    if (SURF.caught) showActivityHint(isTouch ? 'The wave has you! Tap ▲ to stand up' : 'The wave has you! Press Space to stand up', true, 1.0);
+    if (input.jump && fwd > 1.6) { SURF.stand = true; SURF.ride = 0; if (AUDIO.splash) AUDIO.splash(0.3); splashAt(SURF.x, SURF.y, SURF.z, 0.4); showActivityHint(isTouch ? 'Joystick to carve along the wave · ▼ to lie back down' : 'A/D carve along the wave · W pump for speed · S slow down · C lie back down', true); }
+  } else {
+    SURF.ride += dt;
+    // falling off
+    const facing = fx * shx + fz * shz;
+    if (sa.amp > 0.75 && (sa.g > 0.975 || sa.g < 0.05) && facing < -0.1) return wipeout('Wiped out: the lip caught you');
+    if (sa.amp > 0.85 && SURF.onFace > 0.85 && facing > 0.94 && fwd > 8.5 && sa.g > 0.95) return wipeout('Nose-dived down the face');
+    if (Math.abs(yr) * sp > 24) return wipeout('Turned too hard and fell');
+    if (fwd < 0.9) SURF.stallT += dt; else SURF.stallT = 0;
+    if (SURF.stallT > 1.4) { SURF.lastEnd = 'stall'; SURF.stand = false; SURF.stallT = 0; showActivityHint('Lost the wave', true, 1.4); }
+    if (input.down) { SURF.stand = false; }
+  }
+  // spray off the rail and foam trail when carving
+  if (st && sp > 3) {
+    SURF.sprayT += dt;
+    if (SURF.sprayT > 0.06) {
+      SURF.sprayT = 0;
+      rippleDrop(SURF.x - fx * 0.9, SURF.z - fz * 0.9, 0.35, 0.05, Math.min(0.6, sp * 0.05));
+      const s = Math.sign(yr || 1), n = Math.round(Math.min(8, Math.abs(yr) * sp * 1.4) * Q.particles);
+      for (let i = 0; i < n; i++) sprayDrop(SURF.x + rx * s * 0.3 + fx * rand(-0.2, 0.4), SURF.y + 0.05, SURF.z + rz * s * 0.3 + fz * rand(-0.2, 0.4), rx * s * rand(1.5, 3.5) + SURF.vx * 0.4, rand(1.2, 2.8), rz * s * rand(1.5, 3.5) + SURF.vz * 0.4, rand(0.5, 0.9), rand(0.02, 0.045));
+    }
+  }
+  // the board follows the water surface
+  const along = (oceanHeightSafe(SURF.x + fx * 1, SURF.z + fz * 1, t, sea) - oceanHeightSafe(SURF.x - fx * 1, SURF.z - fz * 1, t, sea)) / 2;
+  SURF.pitch = damp(SURF.pitch, Math.atan(along) + (st ? 0 : 0.04), 8, dt);
+  SURF.mesh.position.set(SURF.x, SURF.y + 0.02, SURF.z);
+  SURF.mesh.rotation.set(-SURF.pitch, SURF.yaw, SURF.roll, 'YXZ');
+  // your eyes: lying on the board, or standing on it
+  const eyeUp = st ? 1.5 : 0.48, back = st ? 0.15 : -0.35;
+  P.pos.set(SURF.x - fx * back, SURF.y + eyeUp, SURF.z - fz * back); P.camY = P.pos.y;
+  P.vel.set(SURF.vx, 0, SURF.vz); P.water = w; P.depth = lv2 - g2;
+  if (!st) { let d = SURF.yaw - P.yaw; d = Math.atan2(Math.sin(d), Math.cos(d)); P.yaw += d * (1 - Math.exp(-dt * 3)); }   // lying, you look where you're paddling
+  if (AUDIO.pour) AUDIO.pour(st ? clamp(sp / 12, 0, 1) * 0.6 : 0);
+}
+const oceanHeightSafe = (x, z, t, sea) => sea ? oceanHeight(x, z, t) : waterAt(x, z).level;
+
 // ───────────────────── 18. Reef: coral, sponges, sea fans, seagrass ─────────────────────
 const SEA = { schools: [], fish: null, count: 0, anemones: [] };
 function branchCoral() {
@@ -8195,13 +8379,14 @@ const WAVEHIT = { lastG: 0 };
 function checkWaveHit(dt) {
   if ((P.mode !== 'walk' && P.mode !== 'swim') || P.water.kind !== 'sea' || P.climb) { WAVEHIT.lastG = 0; return; }
   const x = P.pos.x, z = P.pos.z, g0 = groundHeight(x, z), depth = -g0;
-  if (depth > 7 || g0 > 1.4) { WAVEHIT.lastG = 0; return; }
+  if (depth > 7 * Math.max(1, U.uSurfAmp.value * 0.75) || g0 > 1.4 + U.uSurfAmp.value * 0.5) { WAVEHIT.lastG = 0; return; }
   if (P.mode === 'walk' && P.pos.y - EYE > Math.max(g0, 0) + 0.35) { WAVEHIT.lastG = 0; return; } // up on the dock or the bridge, out of reach
   const psi = U.uTime.value / SURF_P + surfOffJS(x, z) + Math.max(depth, 0) * 0.42;
   const n = Math.floor(psi), g = psi - n;
   if (WAVEHIT.lastG > 0.8 && g < 0.2) {
     const amp = SURF_TABLE[((n % 16) + 16) % 16] * U.uSurfAmp.value * surfVarJS(x, z, n + 1);
-    const zone = depth > 0 ? smoothstep(5, 1.2, depth) * smoothstep(-85, -35, coastAt(x, z)) : 1;
+    const zk = Math.max(1, U.uSurfAmp.value * 0.75);
+    const zone = depth > 0 ? smoothstep(5 * zk, 1.2, depth) * smoothstep(-85 * zk, -35, coastAt(x, z)) : 1;
     let k = 0;
     if (depth > 0.15) k = amp * zone; else if (g0 < amp * 0.9) k = amp * 0.3;
     if (k > 0.12) waveHit(k, x, z, depth);
@@ -8438,18 +8623,19 @@ function updateTubeWorld(dt, t) {
 
 // ───────────────────── 28. Tools: a shovel for digging, a stick for writing ─────────────────────
 const TOOL = { cur: 'hands', aim: null, digT: 0, drawing: false, last: null, marker: null, vs: null, vm: {}, pen: false, scratch: 0 };
-const TOOL_LIST = ['hands', 'shovel', 'bucket', 'stick', 'rod'];
-const TOOL_NAMES = { hands: 'Hands', shovel: 'Shovel', bucket: 'Bucket', stick: 'Driftwood stick', rod: 'Fishing rod' };
+const TOOL_LIST = ['hands', 'shovel', 'bucket', 'stick', 'rod', 'surfboard'];
+const TOOL_NAMES = { hands: 'Hands', shovel: 'Shovel', bucket: 'Bucket', stick: 'Driftwood stick', rod: 'Fishing rod', surfboard: 'Surfboard' };
 const BUCKET = { full: 0, anim: null, t: 0, dur: 0, src: null, poured: false, vol: 0.12 };
 const TOOL_HINTS = {
   shovel: ['Shovel · click (or F) to dig · Q to switch', 'Shovel: aim at the sand and tap Dig'],
   bucket: ['Bucket · click (or F) to scoop up water, again to pour it out · Q to switch', 'Bucket: aim at water and tap Scoop, then Pour'],
   stick: ['Stick · hold the mouse button (or F) and look around to write · Q to switch', 'Stick: tap Draw, then look around to write in the sand'],
   rod: ['Fishing rod · hold the mouse button (or F) to wind up a cast · J for your fish journal', 'Fishing rod: hold Cast to wind up, let go to throw'],
+  surfboard: ['Surfboard · wade or swim out and click (or F) to hop on · Space stands you up on a wave', 'Surfboard: wade out and tap Hop on'],
 };
 function setTool(name) {
   TOOL.cur = name; TOOL.pen = false; TOOL.last = null;
-  if (TOOL.vm.shovel) { TOOL.vm.shovel.visible = name === 'shovel'; TOOL.vm.stick.visible = name === 'stick'; TOOL.vm.bucket.visible = name === 'bucket'; if (TOOL.vm.rod) TOOL.vm.rod.visible = name === 'rod'; }
+  if (TOOL.vm.shovel) { TOOL.vm.shovel.visible = name === 'shovel'; TOOL.vm.stick.visible = name === 'stick'; TOOL.vm.bucket.visible = name === 'bucket'; if (TOOL.vm.rod) TOOL.vm.rod.visible = name === 'rod'; if (TOOL.vm.surfboard) TOOL.vm.surfboard.visible = name === 'surfboard'; }
   if (name === 'hands') showActivityHint('');
   else showActivityHint(TOOL_HINTS[name][isTouch ? 1 : 0], true);
   updateToolButtons();
@@ -8529,7 +8715,8 @@ function buildTools() {
 const _tq = new THREE.Quaternion(), _tv = new THREE.Vector3(), _tm = new THREE.Matrix4();
 const SHOVEL_HOLD = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0.22, 0.12, 0.97).normalize());
 function updateTools(dt) {
-  const cur = TOOL.cur, ok = cur !== 'hands' && cur !== 'rod' && P.mode === 'walk' && started && !panelOpen;
+  if (TOOL.cur === 'surfboard' && started && !panelOpen && input.usePressed && P.mode !== 'surf') { input.usePressed = false; startSurf(); }
+  const cur = TOOL.cur, ok = cur !== 'hands' && cur !== 'rod' && cur !== 'surfboard' && P.mode === 'walk' && started && !panelOpen;
   if (started && !panelOpen) updateFishing(dt);
   TOOL.aim = ok ? aimGround(4.6, cur === 'bucket') : null;
   const a = TOOL.aim;
@@ -8577,7 +8764,8 @@ function updateTools(dt) {
   vm.dl.color.copy(sun.color); vm.dl.intensity = sun.intensity; vm.dl.position.copy(camera.position).addScaledVector(U.uLightDir.value, 10); vm.dl.target.position.copy(camera.position); vm.dl.target.updateMatrixWorld();
   vm.hl.color.copy(hemi.color); vm.hl.groundColor.copy(hemi.groundColor); vm.hl.intensity = hemi.intensity;
   const bob = settings.headBob ? Math.sin(P.bob * 2) * 0.012 * P.bobAmt : 0, sway = Math.cos(P.bob) * 0.01 * P.bobAmt;
-  if (cur === 'rod') poseRod(dt, sway, bob);
+  if (cur === 'surfboard') { vm.surfboard.position.set(0.72 + sway, -0.62 + bob, -0.75); }
+  else if (cur === 'rod') poseRod(dt, sway, bob);
   else if (cur === 'bucket') {
     const b = vm.bucket, B = BUCKET, ph = B.anim ? clamp(B.t / B.dur, 0, 1) : 0;
     const dip = B.anim === 'scoop' ? Math.sin(ph * Math.PI) : 0;
@@ -8691,8 +8879,8 @@ function updateToolButtons() {
   const tb = $('t-tool'), ub = $('t-use');
   if (!tb) return;
   tb.textContent = TOOL.cur === 'hands' ? 'Tools' : TOOL_NAMES[TOOL.cur].split(' ').pop().replace(/^./, c => c.toUpperCase());
-  ub.hidden = !(isTouch && TOOL.cur !== 'hands' && (P.mode === 'walk' || (TOOL.cur === 'rod' && P.mode !== 'tube')));
-  ub.textContent = TOOL.cur === 'rod' ? (FISHING.state === 'idle' ? 'Cast' : FISHING.state === 'fighting' || FISHING.state === 'bite' ? 'Reel' : FISHING.state === 'casting' ? 'Cast' : 'Reel in') : TOOL.cur === 'shovel' ? 'Dig' : TOOL.cur === 'bucket' ? (BUCKET.full > 0.05 ? 'Pour' : 'Scoop') : (TOOL.pen ? 'Lift' : 'Draw');
+  ub.hidden = !(isTouch && TOOL.cur !== 'hands' && (P.mode === 'walk' || (TOOL.cur === 'rod' && P.mode !== 'tube') || (TOOL.cur === 'surfboard' && P.mode === 'swim')));
+  ub.textContent = TOOL.cur === 'surfboard' ? 'Hop on' : TOOL.cur === 'rod' ? (FISHING.state === 'idle' ? 'Cast' : FISHING.state === 'fighting' || FISHING.state === 'bite' ? 'Reel' : FISHING.state === 'casting' ? 'Cast' : 'Reel in') : TOOL.cur === 'shovel' ? 'Dig' : TOOL.cur === 'bucket' ? (BUCKET.full > 0.05 ? 'Pour' : 'Scoop') : (TOOL.pen ? 'Lift' : 'Draw');
   ub.classList.toggle('down', TOOL.pen);
 }
 
@@ -9090,6 +9278,7 @@ addEventListener('keydown', e => {
       if (e.code === 'KeyX' && P.mode === 'sub') setSonar(!SUB.sonar);
       if (e.code === 'KeyL' && P.mode === 'sub') SUB.lightsToggle = true;
       if (e.code === 'Digit5') setTool('rod');
+      if (e.code === 'Digit6') setTool('surfboard');
     }
     if (e.code === 'Escape' && !$('journal').hidden) { toggleJournal(false); }
     else if (e.code === 'Escape' || e.code === 'KeyM' || e.code === 'Tab') { if (started) togglePanel(); }
@@ -9251,6 +9440,7 @@ function spawnPlayer() {
   if (P.mode === 'boat' && P.boat) { P.boat.driving = false; P.boat.speed = 0; P.boat = null; }
   if (P.mode === 'tube') { TUBE.rider = false; }
   if (P.mode === 'plane') { $('hud').hidden = true; if (PLANE.state === 'ground') PLANE.throttle = 0; }
+  if (P.mode === 'surf') { SURF.mesh.visible = false; SURF.stand = false; }
   if (P.mode === 'sub') { $('hud').hidden = true; SUB.state = 'parked'; setSonar(false); $('t-sonar').hidden = true; }
   P.vel.set(0, 0, 0); P.yaw = sp.yaw; P.pitch = -0.05; P.mode = 'walk'; P.camY = P.pos.y; P.seat = null; P.climb = null;
 }
@@ -9266,6 +9456,7 @@ function updatePlayer(dt) {
   if (P.mode === 'seat') return updateSeat(dt);
   if (P.mode === 'boat') { updateBoatDrive(dt); input.jump = false; return; }
   if (P.mode === 'sub') { updateSub(dt); input.jump = false; return; }
+  if (P.mode === 'surf') { updateSurf(dt); input.jump = false; return; }
   if (P.mode === 'tube') { P.water = waterAt(P.pos.x, P.pos.z); input.jump = false; return; }
   if (P.climb) return updateClimb(dt);
   let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
@@ -9395,6 +9586,7 @@ function updateClimb(dt) {
 const _aimD = new THREE.Vector3(), _aimP = new THREE.Vector3();
 function nearestInteract() {
   if (P.mode === 'seat') return { label: P.seat.standLabel || 'Stand up', short: 'Stand', stand: true };
+  if (P.mode === 'surf') return { label: 'Get off the board', short: 'Get off', exitSurf: true };
   if (P.mode === 'plane') return PLANE.onGround && PLANE.vel.length() < 3 ? { label: 'Climb out of the plane', short: 'Get out', exitPlane: true } : null;
   if (P.mode === 'sub') { const d = subDepth(); return { label: d > HATCH_SAFE ? `Open the hatch (deadly at ${Math.round(d)} m!)` : d > 2 ? 'Open the hatch and swim out' : 'Climb out of the sub', short: d > HATCH_SAFE ? 'Hatch!' : 'Get out', exitSub: true }; }
   if (P.mode === 'boat') return { label: 'Get out of the boat', short: 'Get out', exitBoat: true };
@@ -9460,12 +9652,13 @@ function updateCamera(dt) {
   if (P.mode === 'plane') { cameraInPlane(); return; }
   if (P.mode === 'boat' && P.boat) roll = P.boat.roll * 0.8;
   if (P.mode === 'sub') roll = SUB.roll * 0.8;
+  if (P.mode === 'surf') roll = SURF.roll * (SURF.stand ? 0.9 : 0.5);
   let dy = 0, pitchOff = 0;
   if (P.dunk > 0) { const k = Math.sin(P.dunk * Math.PI); dy -= k * 0.75; roll += Math.sin(P.dunk * 9) * 0.25 * k; pitchOff += Math.sin(P.dunk * 7) * 0.2 * k; }
   if (P.stumble > 0) { roll += Math.sin(P.stumble * 11) * 0.12 * P.stumble; }
   if (P.shake > 0) { dy += (rng() - 0.5) * 0.08 * P.shake; pitchOff += (rng() - 0.5) * 0.04 * P.shake; }
   const rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
-  camera.position.set(P.pos.x + rx * bobX, (P.mode === 'boat' || P.mode === 'tube' || P.mode === 'sub' ? P.pos.y : P.camY) + bobY + dy, P.pos.z + rz * bobX);
+  camera.position.set(P.pos.x + rx * bobX, (P.mode === 'boat' || P.mode === 'tube' || P.mode === 'sub' || P.mode === 'surf' ? P.pos.y : P.camY) + bobY + dy, P.pos.z + rz * bobX);
   camera.rotation.set(P.pitch + pitchOff + (P.mode === 'boat' && P.boat ? P.boat.pitch * 0.8 : 0), P.yaw, roll);
   keepEyeOffSurface();
 }
@@ -9473,7 +9666,7 @@ function updateCamera(dt) {
 // plane cuts through it, so you'd see the sea floor with no water. Stay clearly above or below,
 // and only cross when you really dive or come up.
 function keepEyeOffSurface() {
-  if (P.mode === 'boat' || P.mode === 'seat' || P.mode === 'plane' || P.mode === 'sub' || !started) { P.camSide = 0; return; }
+  if (P.mode === 'boat' || P.mode === 'seat' || P.mode === 'plane' || P.mode === 'sub' || P.mode === 'surf' || !started) { P.camSide = 0; return; }
   const lv = waterAt(camera.position.x, camera.position.z).level, y = camera.position.y, band = 0.16;
   if (y > lv + 0.6 || y < lv - 0.8) { P.camSide = y > lv ? 1 : -1; return; }
   if (!P.camSide) P.camSide = y >= lv ? 1 : -1;
@@ -9535,7 +9728,7 @@ function syncPanel() {
   $('s-flow').checked = settings.timeFlow; $('s-day').value = String(settings.dayMinutes);
   $('s-weather').value = settings.weather; $('s-names').checked = settings.placeNames;
   set('s-wind', settings.windSpeed ?? 1, (settings.windSpeed ?? 1) < 0.15 ? 'Still' : Math.round((settings.windSpeed ?? 1) * 100) + '%');
-  set('s-waves', settings.waveSize, settings.waveSize < 0.35 ? 'Glassy' : Math.round(settings.waveSize * 100) + '%');
+  set('s-waves', settings.waveSize, settings.waveSize < 0.35 ? 'Glassy' : settings.waveSize > 4.5 ? 'Monster ' + Math.round(settings.waveSize * 100) + '%' : settings.waveSize > 2.6 ? 'Giant ' + Math.round(settings.waveSize * 100) + '%' : Math.round(settings.waveSize * 100) + '%');
   $('s-tsu').value = settings.tsunamiSize;
   set('s-tsuspeed', settings.tsunamiSpeed ?? 1, (settings.tsunamiSpeed ?? 1).toFixed(1) + '×');
   set('s-shovel', settings.shovelPower, Math.round(settings.shovelPower * 100) + '%');
@@ -9613,7 +9806,7 @@ function updatePrompt() {
     actBtn.textContent = it.short || 'Sit'; actBtn.hidden = !isTouch;
     if (input.interact) {
       if (it.stand) stand(); else if (it.exitBoat) exitBoat(); else if (it.exitTube) { exitTube(false); TUBE.riding = true; }
-      else if (it.exitPlane) exitPlane(); else if (it.exitSub) exitSub();
+      else if (it.exitPlane) exitPlane(); else if (it.exitSub) exitSub(); else if (it.exitSurf) endSurf(true);
       else if (it.kind === 'plane') boardPlane(); else if (it.kind === 'sub') boardSub();
       else if (it.kind === 'drive') boardBoat(it); else if (it.kind === 'tube') startTube();
       else if (it.action) cabinAction(it);
@@ -9622,7 +9815,7 @@ function updatePrompt() {
     }
   } else { promptEl.hidden = true; actBtn.hidden = true; }
   input.interact = false;
-  $('t-down').hidden = !(isTouch && (P.mode === 'swim' || P.mode === 'plane' || P.mode === 'sub'));
+  $('t-down').hidden = !(isTouch && (P.mode === 'swim' || P.mode === 'plane' || P.mode === 'sub' || P.mode === 'surf'));
   syncVehicleHud();
   $('t-tool').hidden = !(isTouch && (P.mode === 'walk' || P.mode === 'boat' || P.mode === 'seat'));
   if (isTouch) updateToolButtons();
@@ -9708,7 +9901,7 @@ async function boot(saved) {
   buildWildlife();
   FX.build();
   buildSpray(); buildRipples(); setupRefraction(); setupGlow(); buildWeatherFX(); buildTsunamiSpray(); buildPourStream();
-  buildTools(); buildFishing(); buildTreefall();
+  buildTools(); buildFishing(); buildTreefall(); buildSurf();
   finishVegetation();
   buildLawn();
   if (typeof applyLifeQuality === 'function') applyLifeQuality();
@@ -9750,7 +9943,7 @@ const startBoot = data => boot(data || {}).catch(err => { console.error(err); fa
 if (hot && hot.ready) hot.ready(startBoot); else startBoot(hot && hot.data);
 // small handle for poking at the island from the browser console
 window.__bp = { updateSeaLife, P, ENV, WX, settings, begin, camera, renderer, scene, spawnPlayer, groundHeight, PLACES, SPAWN, applyQuality, POOL, STREAM, FIELDS, INTERACT, input, keys, sit, U, updatePlayer, readKeys, waterAt, LAYOUT, SEA, PLATFORMS, updatePrompt,
-  applyWaterStyle, updateCamera, FX, WFX, SPRAY, splashAt, rippleDrop, supportHeight, applyShovelPower, updateBoats, boatPhysics, updateTsunami, updateCabin, BUCKET, wetArea, TREEFALL, breakTree, allTrees, blastTrees, updateTreefall, unhideTrees, VEG, PLANE, SUB, TRENCH, boardPlane, exitPlane, updatePlane, resetPlane, planeExplode, boardSub, exitSub, updateSub, setSonar, subDepth, implode, ANIMALS, updateBigAnimals, showHeldFish, FISHING, FISH, rollFish, hookFish, landFish, habitatAt, toggleJournal, updateFishing, WXFX, strike, updateWeatherFX, CABIN, WALLS, TSU, DESTROY, destroyCabin, repairIsland, flushTerrain, tsunamiErode, updateDestruction, sendTsunami, calmSea, insideCabin, cabinToWorld, worldToCabin, startSleep, cabinAction, nearestInteract, oceanHeight, tsunamiJS, pourAt, scoopAt, returnBoat,
+  applyWaterStyle, updateCamera, FX, WFX, SPRAY, splashAt, rippleDrop, supportHeight, applyShovelPower, updateBoats, boatPhysics, updateTsunami, updateCabin, BUCKET, wetArea, SURF, startSurf, updateSurf, endSurf, surfAtJS, TREEFALL, breakTree, allTrees, blastTrees, updateTreefall, unhideTrees, VEG, PLANE, SUB, TRENCH, boardPlane, exitPlane, updatePlane, resetPlane, planeExplode, boardSub, exitSub, updateSub, setSonar, subDepth, implode, ANIMALS, updateBigAnimals, showHeldFish, FISHING, FISH, rollFish, hookFish, landFish, habitatAt, toggleJournal, updateFishing, WXFX, strike, updateWeatherFX, CABIN, WALLS, TSU, DESTROY, destroyCabin, repairIsland, flushTerrain, tsunamiErode, updateDestruction, sendTsunami, calmSea, insideCabin, cabinToWorld, worldToCabin, startSleep, cabinAction, nearestInteract, oceanHeight, tsunamiJS, pourAt, scoopAt, returnBoat,
   SAND, digAt, carveStroke, stampFoot, updateSand, riverQuery, BOATS, TUBE, boardBoat, exitBoat, startTube, setTool, TOOL, updateTools, aimGround, updateTubeWorld, sandWaterAt, SPRING };
 
 // ───────────────────── 36. Multiplayer ─────────────────────

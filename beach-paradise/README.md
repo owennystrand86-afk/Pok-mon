@@ -42,7 +42,8 @@ It needs WebGL 2 and an internet connection the first time (for three.js and the
 | Drive the submarine | `E` beside it at the dock, then `W`/`S` drive, `A`/`D` turn, `Space` rise, `C` dive, `X` sonar, `L` lights, `E` to open the hatch | Joystick, ▲▼ to rise and dive, Sonar button |
 | Drive the motorboat | `E` beside it, then `W`/`S` throttle, `A`/`D` steer, `Shift` full speed, `E` to get out. Drive up the river from the sea and straight at the bottom of the waterfall to climb it | Joystick, Get out button |
 | Ride the river on the inner tube | `E` beside the tube at the waterfall pool, `A`/`D` steer, `W` paddle | Joystick, Get off button |
-| Tools | `Q` switches between hands, shovel, bucket, stick and fishing rod (or `1`–`5`); in the boat, between hands and the rod | Tools button |
+| Tools | `Q` switches between hands, shovel, bucket, stick, fishing rod and surfboard (or `1`–`6`); in the boat, between hands and the rod | Tools button |
+| Surf | With the surfboard (`6`): wade or swim out and click (or `F`) to hop on, `W` paddle, `A`/`D` turn; when a wave picks you up press `Space` to stand, then `A`/`D` carve, `W` pump, `S` slow, `C` lie back down, `E` get off | Hop on button, joystick, ▲ to stand, ▼ to lie down |
 | Fish | With the rod: hold the mouse button (or `F`) to wind up a cast and let go to throw; click when the bobber dips; hold to reel and ease off when the line goes red | Cast, then Reel |
 | Fish journal | `J` | Settings, Fish journal |
 | Dig / scoop / write | Click (or hold `F`) to dig with the shovel; click to fill the bucket from the sea, the river or a pool you dug, and again to pour it out; hold and look around to write with the stick | Dig, Scoop / Pour, or Draw to start and stop writing |
@@ -67,7 +68,8 @@ button and drag to look instead.
 - Time of day, whether time passes, the length of a day (12 to 72 minutes), the weather
   (changes naturally, always clear, cloudy, rain, distant storm, thunderstorm, windy, hurricane,
   morning mist), wind strength, and whether place names appear when you discover somewhere.
-- **Sea**: wave size (from glassy to big surf), tsunami size (about 4, 7, 11, 20 or 34 m) and
+- **Sea**: wave size (from glassy up to monster surf six times the normal size; bigger waves start
+  breaking further out), tsunami size (about 4, 7, 11, 20 or 34 m) and
   speed (up to three times as fast), buttons that send a tsunami toward the main beach, calm the
   sea again, bring the boat, plane and sub back, and repair the island after a tsunami.
 - **Tools**: shovel power, from small careful scoops to huge ones.
@@ -113,6 +115,10 @@ Settings are remembered in your browser.
   furniture. **Repair the island** puts everything back.
 - Trees growing at the edge of a channel you dig or the river washes out lose their footing and
   fall into the water and drift off.
+- A surfboard: paddle out past the break, turn for the beach as a set comes in, paddle to catch a
+  wave and stand up. Angle along the face to ride it, pump for speed and carve; go straight down a
+  big one and you nose-dive, let the lip catch you and you wipe out, turn too hard and you fall.
+  Your ride time and best ride are shown when you come off.
 - Big animals out on the water: blacktip, tiger and hammerhead sharks, a pod of dolphins that leap,
   sea turtles, manta rays and a whale shark. They gather round when you're out in the boat or
   swimming, and none of them attack.
@@ -162,7 +168,7 @@ The whole game is `index.html`. The script is organised in numbered sections:
 9–13. Vegetation: chunked instancing, wind animation, canvas-drawn leaf textures; 13b. a lawn of
     individual grass blades placed around the camera in the shader
 14–17. Places, props (dock, inner tube, footbridge) and rocks; 16b. the motorboat and its hull
-    physics; 16c. the biplane and its flight model; 16d. the submarine, the trench, sonar
+    physics; 16c. the biplane and its flight model; 16d. the submarine, the trench, sonar; 16e. surfing
 18–19. Coral, seagrass and fish; 19b. sharks, dolphins, turtles, rays and a whale shark
 20. Time of day, lighting and weather; 20b. wind streaks, blown leaves and sand, sea spray, rain
     splashes, roof drips and branching lightning
