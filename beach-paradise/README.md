@@ -53,7 +53,10 @@ button and drag to look instead.
 
 ### Settings
 
-- **Graphics quality**: Low, Medium, High, Ultra. Phones start on Medium, computers on High.
+- **Graphics quality**: Low, Medium, High, Ultra, Max 4K. Phones start on Medium, computers on High.
+  Ultra and Max add real reflections of the island, palms and boats in the sea; Max draws at your
+  screen's full resolution (4K on a 4K screen) with the finest ocean and never lowers the
+  resolution to keep the frame rate up, so it can be slow.
   Quality changes shadows, plant density and draw distance, particles, fish count and resolution;
   Low also turns off the see-through water and the glow.
 - **Glow on bright light**, **Water look** (tropical, crystal clear or deep ocean blue) and **Sky**
@@ -90,7 +93,8 @@ Settings are remembered in your browser.
   splashes throw droplets that fall back into the water. Every couple of minutes a set of bigger
   waves rolls in; they break over you, push you toward the beach and splash water onto the screen.
 - A river that rises in a spring on the plateau, pours over the cliff as a thick, aerated waterfall
-  into a jungle pool, then widens all the way to the sea. It is deep enough to swim in, and its
+  into a jungle pool, then runs down to the sea as a mountain stream: calm, clear pools where you
+  can see the bottom, each spilling into the next down a short white cascade. It is deep enough to swim in, and its
   current carries you downstream (and over the falls if you let it). A footbridge crosses it.
 - A six-metre centre-console motorboat at the dock. You can drive it up the river from the sea
   (the banks steer you back to the middle) and, if you hit the bottom of the falls fast, it climbs
@@ -103,9 +107,12 @@ Settings are remembered in your browser.
 - Tsunamis on request: far out the sea rises, the water drains back off the beach and exposes the
   seabed, then a wall of water with a white crest breaks over the sand, knocks you over, sweeps you
   and the boat inland and floods the low ground with churning brown water before it drains away.
-  It scours the land it runs over (the beach can be planed down to almost sea level), knocks palms
-  and trees flat, and a big enough one tears the cabin apart into floating logs, boards and
+  It scours the land it runs over (the beach can be planed down to almost sea level), snaps palms
+  and trees into pieces (trunks, fronds, branches, coconuts) that tumble and float away on the
+  flood, and a big enough one tears the cabin apart into floating logs, boards and
   furniture. **Repair the island** puts everything back.
+- Trees growing at the edge of a channel you dig or the river washes out lose their footing and
+  fall into the water and drift off.
 - Big animals out on the water: blacktip, tiger and hammerhead sharks, a pod of dolphins that leap,
   sea turtles, manta rays and a whale shark. They gather round when you're out in the boat or
   swimming, and none of them attack.
@@ -168,7 +175,7 @@ The whole game is `index.html`. The script is organised in numbered sections:
 29. The log cabin: log walls, furniture, window glass with running rain, lamps and fire light,
     a sun mask that only lets light in through the openings, sleeping
 29b. Fishing and the fish journal
-30. Tsunamis; 31. what they leave behind (terrain erosion, flattened plants, the cabin wrecked)
+30. Tsunamis; 31. what they leave behind; 31b. trees breaking into pieces (terrain erosion, flattened plants, the cabin wrecked)
 36. Multiplayer through the claude.ai room (each player shares where they are about eight times a
     second; everyone else sees a figure, their vehicle and their name)
 32–35. Input, player (walking, wading, swimming, diving, sitting), camera, interface, main loop
