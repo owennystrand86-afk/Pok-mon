@@ -34,9 +34,12 @@ It needs WebGL 2 and an internet connection the first time (for three.js and the
 | Sit, lie down, stand up | `E` near a chair, sofa, window seat, towel, bench, hammock, rock or the dock | The button that appears |
 | Sleep | `E` at the cabin bed: at night you sleep until morning, by day you take a two-hour nap | The button that appears |
 | Kettle, fire | `E` at the stove puts the kettle on; `E` at the fireplace lights it or lets it burn down | The button that appears |
-| Drive the motorboat | `E` beside it, then `W`/`S` throttle, `A`/`D` steer, `Shift` full speed, `E` to get out | Joystick, Get out button |
+| Door and windows | Look at the cabin door or a window and press `E` to open or close it | The button that appears |
+| Drive the motorboat | `E` beside it, then `W`/`S` throttle, `A`/`D` steer, `Shift` full speed, `E` to get out. Drive up the river from the sea and straight at the bottom of the waterfall to climb it | Joystick, Get out button |
 | Ride the river on the inner tube | `E` beside the tube at the waterfall pool, `A`/`D` steer, `W` paddle | Joystick, Get off button |
-| Tools | `Q` switches between hands, shovel, bucket and stick (or `1` `2` `3` `4`) | Tools button |
+| Tools | `Q` switches between hands, shovel, bucket, stick and fishing rod (or `1`–`5`); in the boat, between hands and the rod | Tools button |
+| Fish | With the rod: hold the mouse button (or `F`) to wind up a cast and let go to throw; click when the bobber dips; hold to reel and ease off when the line goes red | Cast, then Reel |
+| Fish journal | `J` | Settings, Fish journal |
 | Dig / scoop / write | Click (or hold `F`) to dig with the shovel; click to fill the bucket from the sea, the river or a pool you dug, and again to pour it out; hold and look around to write with the stick | Dig, Scoop / Pour, or Draw to start and stop writing |
 | Settings | `Esc`, `M` or the button in the top-right corner | Button in the top-right corner |
 
@@ -51,13 +54,13 @@ button and drag to look instead.
 - Field of view, head bob, look sensitivity, invert look.
 - Master, ambience and music volume (the music is a quiet generated soundtrack and can be turned off).
 - Time of day, whether time passes, the length of a day (12 to 72 minutes), the weather
-  (changes naturally, always clear, cloudy, rain, distant storm, morning mist) and whether place
-  names appear when you discover somewhere.
-- **Sea**: wave size (from glassy to big surf), tsunami size (about 4, 7 or 11 m), a button that
-  sends a tsunami toward the main beach, one that calms the sea again, and one that brings the
-  boat back to the dock.
+  (changes naturally, always clear, cloudy, rain, distant storm, thunderstorm, windy, hurricane,
+  morning mist), wind strength, and whether place names appear when you discover somewhere.
+- **Sea**: wave size (from glassy to big surf), tsunami size (about 4, 7, 11, 20 or 34 m) and
+  speed, buttons that send a tsunami toward the main beach, calm the sea again, bring the boat back
+  to the dock, and repair the island after a tsunami has wrecked it.
 - **Tools**: shovel power, from small careful scoops to huge ones.
-- **Back to the cabin** puts you back where you started.
+- **Back to the cabin** puts you back where you started. **Fish journal** opens the journal.
 
 Settings are remembered in your browser.
 
@@ -66,19 +69,23 @@ Settings are remembered in your browser.
 - A log cabin on stilts behind the main beach, where you start: a living room with a stone
   fireplace, sofa and a window seat looking out to sea, a kitchen with a stove, kettle and shelves,
   a dining table, a bedroom with a bed you can sleep in, and a porch with chairs and string lights.
-  Sunlight only comes in through the windows and the open door, lamps come on in the evening, the
-  fire crackles at night, and when it rains the drops bead and run down the glass while the rain
-  drums on the roof.
+  The door and every window open and close. Sunlight only comes in through the windows and the
+  open door, lamps come on in the evening, the fire crackles at night, and when it rains the drops
+  bead and run down the glass while the rain drums on the roof (louder with the windows open).
 - A wide west-facing main beach in front of it, with beach chairs, a towel, a sandcastle and a
   dock with a rowboat. The sun sets over the sea in front of it.
-- A sea with rolling swell, waves that break and wash up the sand, foam, wet sand that dries
-  as the water drains away, and clear shallows over a coral garden full of fish. Every couple
-  of minutes a set of bigger waves rolls in; they break over you, push you toward the beach and
-  splash water onto the screen.
+- A sea with rolling swell, waves that break and wash up the sand, and clear shallows over a coral
+  garden full of fish. You see the sand and coral through the water, bent by the waves; foam breaks
+  up into lace and bubbles as it thins; the sun glitters on the ripples. Around you the water
+  really moves: swimming, wading, the boat, splashes and raindrops all leave rings and foam, and
+  splashes throw droplets that fall back into the water. Every couple of minutes a set of bigger
+  waves rolls in; they break over you, push you toward the beach and splash water onto the screen.
 - A river that rises in a spring on the plateau, pours over the cliff as a thick, aerated waterfall
   into a jungle pool, then widens all the way to the sea. It is deep enough to swim in, and its
   current carries you downstream (and over the falls if you let it). A footbridge crosses it.
-- A six-metre centre-console motorboat at the dock: a deep-V hull in glossy gelcoat with painted
+- A six-metre centre-console motorboat at the dock. You can drive it up the river from the sea
+  (the banks steer you back to the middle) and, if you hit the bottom of the falls fast, it climbs
+  the waterfall onto the river above. The boat: a deep-V hull in glossy gelcoat with painted
   stripes, a teak deck, a T-top, stainless rails, gauges, a wheel and throttle that move, navigation
   lights and an outboard whose propeller spins. It floats on eight points along its hull, so it
   pitches and rolls over the swell, leans into turns, rises onto the plane, catches air off waves
@@ -87,7 +94,17 @@ Settings are remembered in your browser.
 - Tsunamis on request: far out the sea rises, the water drains back off the beach and exposes the
   seabed, then a wall of water with a white crest breaks over the sand, knocks you over, sweeps you
   and the boat inland and floods the low ground with churning brown water before it drains away.
-  The cabin stays dry.
+  It scours the land it runs over (the beach can be planed down to almost sea level), knocks palms
+  and trees flat, and a big enough one tears the cabin apart into floating logs, boards and
+  furniture. **Repair the island** puts everything back.
+- Fishing with 36 kinds of catch, from sardines and bass to tarpon, marlin, bluefin tuna,
+  hammerheads, tiger sharks and great whites (and the odd old boot). What bites depends on where
+  the bobber lands (shallows, open sea, the reef, the river or the falls pool), the time of day and
+  the weather; dawn and dusk are best. Fight the fish by keeping the line tension up without
+  snapping it. Every catch goes in the fish journal with your biggest of each.
+- Weather you can see: streaks of wind, leaves and sand blowing past, spray torn off the wave tops,
+  palms and trees bending harder the stronger it blows, raindrops bursting on the ground and running
+  off the roof, and in a thunderstorm real branching bolts striking close by.
 - A shovel, a bucket and a driftwood stick. Holes near the sea fill with groundwater, a channel dug
   from the sea or the river fills and flows (and slowly erodes and slumps like real sand), poured
   water soaks in and leaves wet sand that dries over a minute or two or collects in what you dug,
@@ -110,11 +127,14 @@ The whole game is `index.html`. The script is organised in numbered sections:
 5. Procedural textures
 6. Island terrain: coastline field, beaches, mountains, waterfall cliff, stream, pool, trail, tide pools
 7. Sky dome with clouds, sun, moon, stars and rainbow
-8. Ocean, pools, river and waterfall shaders
+8. Ocean, pools, river and waterfall shaders; 8b. water effects: refraction (the frame is drawn
+   without water, copied, and the water bends it), a GPU ripple simulation around the camera, a
+   foam texture, and spray droplets drawn as streaks
 9–13. Vegetation: chunked instancing, wind animation, canvas-drawn leaf textures
 14–17. Places, props (dock, inner tube, footbridge) and rocks; 16b. the motorboat and its hull physics
 18–19. Coral, seagrass and fish
-20. Time of day, lighting and weather
+20. Time of day, lighting and weather; 20b. wind streaks, blown leaves and sand, sea spray, rain
+    splashes, roof drips and branching lightning
 21–22. Wildlife and effects
 23. Synthesized sound
 24. Living sand: 32 m chunks at 0.5 m resolution that refine the island where the river runs and
@@ -123,8 +143,9 @@ The whole game is `index.html`. The script is organised in numbered sections:
 25–28. Waves that hit you, driving the boat, the inner tube ride, and the shovel, bucket and stick
 29. The log cabin: log walls, furniture, window glass with running rain, lamps and fire light,
     a sun mask that only lets light in through the openings, sleeping
-30. Tsunamis
-30–35. Input, player (walking, wading, swimming, diving, sitting), camera, interface, main loop
+29b. Fishing and the fish journal
+30. Tsunamis; 31. what they leave behind (terrain erosion, flattened plants, the cabin wrecked)
+32–35. Input, player (walking, wading, swimming, diving, sitting), camera, interface, main loop
 
 The sea surface the player swims in is computed with the same wave maths on the CPU as in the
 ocean shader (tsunami included), so what you see and where you float agree.
