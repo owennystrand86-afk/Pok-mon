@@ -5,6 +5,9 @@ You wake up in a log cabin above the beach. There are no goals, coins or enemies
 swim out over the reef, find the hidden places, sit down and watch the sun set, or curl up by the
 fire while the rain runs down the windows.
 
+When other people have the island open at the same time, you are on it together: you see each
+other walking, swimming, sailing, flying and diving, with names over your heads.
+
 Everything is generated in code when the page loads: the island, plants, textures, fish, birds
 and all of the sound. The only download is [three.js](https://threejs.org) (r170) from the
 jsDelivr CDN.
@@ -35,6 +38,8 @@ It needs WebGL 2 and an internet connection the first time (for three.js and the
 | Sleep | `E` at the cabin bed: at night you sleep until morning, by day you take a two-hour nap | The button that appears |
 | Kettle, fire | `E` at the stove puts the kettle on; `E` at the fireplace lights it or lets it burn down | The button that appears |
 | Door and windows | Look at the cabin door or a window and press `E` to open or close it | The button that appears |
+| Fly the biplane | `E` beside it on the beach, then `W`/`S` throttle, mouse or arrow keys for the stick (pull back to climb), `A`/`D` roll; land gently on the wheels and press `E` to climb out | Joystick for the stick (push forward to dive), ▲▼ throttle, drag to look around |
+| Drive the submarine | `E` beside it at the dock, then `W`/`S` drive, `A`/`D` turn, `Space` rise, `C` dive, `X` sonar, `L` lights, `E` to open the hatch | Joystick, ▲▼ to rise and dive, Sonar button |
 | Drive the motorboat | `E` beside it, then `W`/`S` throttle, `A`/`D` steer, `Shift` full speed, `E` to get out. Drive up the river from the sea and straight at the bottom of the waterfall to climb it | Joystick, Get out button |
 | Ride the river on the inner tube | `E` beside the tube at the waterfall pool, `A`/`D` steer, `W` paddle | Joystick, Get off button |
 | Tools | `Q` switches between hands, shovel, bucket, stick and fishing rod (or `1`–`5`); in the boat, between hands and the rod | Tools button |
@@ -49,7 +54,10 @@ button and drag to look instead.
 ### Settings
 
 - **Graphics quality**: Low, Medium, High, Ultra. Phones start on Medium, computers on High.
-  Quality changes shadows, plant density and draw distance, particles, fish count and resolution.
+  Quality changes shadows, plant density and draw distance, particles, fish count and resolution;
+  Low also turns off the see-through water and the glow.
+- **Glow on bright light**, **Water look** (tropical, crystal clear or deep ocean blue) and **Sky**
+  (natural light, a physically based sky, or the painted one).
 - **Keep it smooth**: lowers the resolution a little when the frame rate drops.
 - Field of view, head bob, look sensitivity, invert look.
 - Master, ambience and music volume (the music is a quiet generated soundtrack and can be turned off).
@@ -57,8 +65,8 @@ button and drag to look instead.
   (changes naturally, always clear, cloudy, rain, distant storm, thunderstorm, windy, hurricane,
   morning mist), wind strength, and whether place names appear when you discover somewhere.
 - **Sea**: wave size (from glassy to big surf), tsunami size (about 4, 7, 11, 20 or 34 m) and
-  speed, buttons that send a tsunami toward the main beach, calm the sea again, bring the boat back
-  to the dock, and repair the island after a tsunami has wrecked it.
+  speed (up to three times as fast), buttons that send a tsunami toward the main beach, calm the
+  sea again, bring the boat, plane and sub back, and repair the island after a tsunami.
 - **Tools**: shovel power, from small careful scoops to huge ones.
 - **Back to the cabin** puts you back where you started. **Fish journal** opens the journal.
 
@@ -74,8 +82,9 @@ Settings are remembered in your browser.
   bead and run down the glass while the rain drums on the roof (louder with the windows open).
 - A wide west-facing main beach in front of it, with beach chairs, a towel, a sandcastle and a
   dock with a rowboat. The sun sets over the sea in front of it.
-- A sea with rolling swell, waves that break and wash up the sand, and clear shallows over a coral
-  garden full of fish. You see the sand and coral through the water, bent by the waves; foam breaks
+- A sea with rolling swell and breaking waves that peak and peel along their crests instead of
+  arriving as straight walls, washing up the sand, and clear shallows over a coral garden full of
+  fish. You see the sand and coral through the water, bent by the waves; foam breaks
   up into lace and bubbles as it thins; the sun glitters on the ripples. Around you the water
   really moves: swimming, wading, the boat, splashes and raindrops all leave rings and foam, and
   splashes throw droplets that fall back into the water. Every couple of minutes a set of bigger
@@ -97,11 +106,23 @@ Settings are remembered in your browser.
   It scours the land it runs over (the beach can be planed down to almost sea level), knocks palms
   and trees flat, and a big enough one tears the cabin apart into floating logs, boards and
   furniture. **Repair the island** puts everything back.
+- Big animals out on the water: blacktip, tiger and hammerhead sharks, a pod of dolphins that leap,
+  sea turtles, manta rays and a whale shark. They gather round when you're out in the boat or
+  swimming, and none of them attack.
+- An open-cockpit biplane on the beach. Take off along the sand, loop around the island, and land
+  it gently. Touch the sea and it sinks to the bottom (bring it back from the settings); fly it into
+  the ground and it explodes in a fireball and burning wreckage.
+- A little research submarine at the dock with a glass bubble nose. Out past the reef the sea floor
+  drops into a trench nearly half a kilometre deep, pitch black apart from your searchlights and
+  glowing plankton. The pressure gauge climbs past 40 atmospheres; the hull is rated to 400 m and
+  gives way past 450, and opening the hatch deeper than 40 m crushes you. Sonar shows the trench
+  walls and any animals around you as glowing contours.
 - Fishing with 36 kinds of catch, from sardines and bass to tarpon, marlin, bluefin tuna,
   hammerheads, tiger sharks and great whites (and the odd old boot). What bites depends on where
   the bobber lands (shallows, open sea, the reef, the river or the falls pool), the time of day and
   the weather; dawn and dusk are best. Fight the fish by keeping the line tension up without
-  snapping it. Every catch goes in the fish journal with your biggest of each.
+  snapping it. Fish leap out of the water as you fight them, and you hold up each catch for a moment
+  before it goes in the fish journal with your biggest of each.
 - Weather you can see: streaks of wind, leaves and sand blowing past, spray torn off the wave tops,
   palms and trees bending harder the stronger it blows, raindrops bursting on the ground and running
   off the roof, and in a thunderstorm real branching bolts striking close by.
@@ -127,12 +148,15 @@ The whole game is `index.html`. The script is organised in numbered sections:
 5. Procedural textures
 6. Island terrain: coastline field, beaches, mountains, waterfall cliff, stream, pool, trail, tide pools
 7. Sky dome with clouds, sun, moon, stars and rainbow
-8. Ocean, pools, river and waterfall shaders; 8b. water effects: refraction (the frame is drawn
+8. Ocean, pools, river and waterfall shaders (the waterfall is one sheet from the river surface over
+   the lip into free fall); 8c. glow on bright light; 8b. water effects: refraction (the frame is drawn
    without water, copied, and the water bends it), a GPU ripple simulation around the camera, a
    foam texture, and spray droplets drawn as streaks
-9–13. Vegetation: chunked instancing, wind animation, canvas-drawn leaf textures
-14–17. Places, props (dock, inner tube, footbridge) and rocks; 16b. the motorboat and its hull physics
-18–19. Coral, seagrass and fish
+9–13. Vegetation: chunked instancing, wind animation, canvas-drawn leaf textures; 13b. a lawn of
+    individual grass blades placed around the camera in the shader
+14–17. Places, props (dock, inner tube, footbridge) and rocks; 16b. the motorboat and its hull
+    physics; 16c. the biplane and its flight model; 16d. the submarine, the trench, sonar
+18–19. Coral, seagrass and fish; 19b. sharks, dolphins, turtles, rays and a whale shark
 20. Time of day, lighting and weather; 20b. wind streaks, blown leaves and sand, sea spray, rain
     splashes, roof drips and branching lightning
 21–22. Wildlife and effects
@@ -145,6 +169,8 @@ The whole game is `index.html`. The script is organised in numbered sections:
     a sun mask that only lets light in through the openings, sleeping
 29b. Fishing and the fish journal
 30. Tsunamis; 31. what they leave behind (terrain erosion, flattened plants, the cabin wrecked)
+36. Multiplayer through the claude.ai room (each player shares where they are about eight times a
+    second; everyone else sees a figure, their vehicle and their name)
 32–35. Input, player (walking, wading, swimming, diving, sitting), camera, interface, main loop
 
 The sea surface the player swims in is computed with the same wave maths on the CPU as in the
