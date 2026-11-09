@@ -1642,11 +1642,11 @@ function buildSky() {
           float dens = smoothstep(cov, cov + 0.24, n);
           vec2 so = normalize(uSunDir.xz + vec2(1e-4)) * 0.03;
           float ns = cloudN(uv + so);
-          float lightAmt = clamp(1.0 - (ns - n) * 3.2, 0.35, 1.06);
+          float lightAmt = clamp(1.0 - (ns - n) * 3.2, 0.35, 1.0);
           float thick = smoothstep(cov, cov + 0.5, n);
           vec3 cc = mix(uCloudLit, uCloudShade, thick * 0.8) * lightAmt;
-          cc += uSkyGlow * uGlowAmt * pow(sd, 9.0) * (1.0 - thick) * 0.38;
-          cc += uSunDisk * pow(sd, 16.0) * (1.0 - thick) * 0.3 * sunUp;
+          cc += uSkyGlow * uGlowAmt * pow(sd, 12.0) * (1.0 - thick) * 0.24;
+          cc += uSunDisk * pow(sd, 24.0) * (1.0 - thick) * 0.2 * sunUp;
           cc *= 1.0 - uCloudDark * 0.55 * thick;
           float fade = smoothstep(0.0, 0.22, y);
           cloudA = dens * fade;
