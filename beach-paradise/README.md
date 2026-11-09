@@ -49,7 +49,7 @@ It needs WebGL 2 and an internet connection the first time (for three.js and the
 | Surf | With the surfboard (`6`): wade or swim out and click (or `F`) to hop on, `W` paddle, `A`/`D` turn; when a wave picks you up press `Space` to stand, then `A`/`D` carve, `W` pump, `S` slow, `C` lie back down, `E` get off | Hop on button, joystick, ▲ to stand, ▼ to lie down |
 | Fish | With the rod: hold the mouse button (or `F`) to wind up a cast and let go to throw; click when the bobber dips; hold to reel and ease off when the line goes red | Cast, then Reel |
 | Fish journal | `J` | Settings, Fish journal |
-| Dig / scoop / write | Click (or hold `F`) to dig with the shovel; click to fill the bucket from the sea, the river or a pool you dug, and again to pour it out; hold and look around to write with the stick | Dig, Scoop / Pour, or Draw to start and stop writing |
+| Dig / place dirt / scoop / write | Click (or hold `F`) to dig with the shovel; `G` or right-click switches it to placing dirt and back; click to fill the bucket from the sea, the river or a pool you dug, and again to pour it out; hold and look around to write with the stick | Dig or Fill (Fill mode / Dig mode switches), Scoop / Pour, or Draw to start and stop writing |
 | Settings | `Esc`, `M` or the button in the top-right corner | Button in the top-right corner |
 
 If the browser does not allow the mouse to be captured (some embedded viewers), hold the mouse
@@ -75,7 +75,8 @@ button and drag to look instead.
   breaking further out), tsunami size (about 4, 7, 11, 20 or 34 m) and
   speed (up to three times as fast), buttons that send a tsunami toward the main beach, calm the
   sea again, bring the boat, plane and sub back, and repair the island after a tsunami.
-- **Tools**: shovel power, from small careful scoops to huge ones.
+- **Tools**: shovel power, from small careful scoops to huge ones, and how hard the drain pump
+  pumps (10% to 500%).
 - **Back to the cabin** puts you back where you started. **Fish journal** opens the journal.
 
 Settings are remembered in your browser.
@@ -102,11 +103,15 @@ Settings are remembered in your browser.
   splashes throw droplets that fall back into the water. Every couple of minutes a set of bigger
   waves rolls in; they break over you, push you toward the beach and splash water onto the screen.
 - A river that rises in a spring on the plateau, pours over the cliff as a thick, aerated waterfall
-  into a jungle pool, then runs down to the sea as a mountain stream: calm, clear pools where you
-  can see the bottom, each spilling into the next down a short white cascade. The ripples
-  stream along with the current, slow boils drift down the calm runs, and standing waves hold
-  still in the chutes while the water races through them. It is deep enough to swim in, and its
-  current carries you downstream (and over the falls if you let it). A footbridge crosses it.
+  into a jungle pool (a full body of water that runs down over the rock face rather than through
+  it; you can swim into it and, against its current, all the way up it to the river above), then
+  runs down to the sea as a mountain stream: calm, clear pools where you can see the bottom, each
+  spilling into the next down a short white cascade. The ripples stream along with the current,
+  slow boils drift down the calm runs, and standing waves hold still in the chutes while the water
+  races through them. It is deep enough to swim in, and its current carries you downstream (and
+  over the falls if you let it). A footbridge crosses it. At its mouth the river comes down to sea
+  level and the two waters are one: the sea's swell runs into the mouth and dies away up the
+  channel, rising and falling the same on both sides, and the river's colour fades into the sea's.
 - A six-metre centre-console motorboat at the dock. You can drive it up the river from the sea
   (the banks steer you back to the middle) and, if you hit the bottom of the falls fast, it climbs
   the waterfall onto the river above. The boat: a deep-V hull in glossy gelcoat with painted
@@ -182,7 +187,15 @@ Settings are remembered in your browser.
   from the sea or the river fills and flows (and slowly erodes and slumps like real sand), poured
   water soaks in and leaves wet sand that dries over a minute or two or collects in what you dug,
   and you can write in the sand. Waves wash writing, footprints and dug sand away again near the
-  water. A bucket of water also puts out the fire.
+  water. A bucket of water also puts out the fire. Wherever you dig or water runs, the ground
+  blends into the beach around it with no seams or square patches; holes and wet patches have
+  soft, ragged edges and water running over sand carves smooth grooves.
+- The shovel also places dirt, as much as you like: dark, crumbly earth that stands steeper than
+  sand. Pile it up into banks, fill holes, or dam the river: build it across the channel higher
+  than the water and the river stops there. Below the dam it drains away to puddles (dam it above
+  the falls and the falls run dry); above it the water backs up into a pond that rises until it
+  pours over the top of the dam or spills out over the lowest bank and runs off across the land.
+  Dig through the dam and the river runs again.
 - Places to find on your own: a hidden cove with a hammock, a summit lookout with a bench, a ring
   of palms around a clearing, a sea arch, a small island across the lagoon and tide pools on the
   rocky east shore.

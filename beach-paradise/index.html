@@ -130,6 +130,7 @@ select option{background:#0b2730;color:var(--foam)}
 .tb.down{background:rgba(242,251,248,.28)}
 #t-act,#t-tool,#t-use{width:auto;height:46px;border-radius:999px;padding:0 18px;font-weight:600;font-size:14px;color:#fff}
 #t-use{min-width:76px}
+#t-mode{width:auto;height:46px;border-radius:999px;padding:0 14px;font-weight:600;font-size:13px;color:#e8d2b0}
 .tb-row{display:flex;gap:12px;align-items:flex-end}
 
 #fade{position:fixed;inset:0;background:#02060a;opacity:0;pointer-events:none;z-index:25}
@@ -258,7 +259,7 @@ body.touch #hud{top:calc(env(safe-area-inset-top,0px) + 60px);transform:scale(.8
   <div id="stick"><div id="knob"></div></div>
   <div id="tbtns">
     <button class="tb" id="t-act" hidden>Sit</button>
-    <div class="tb-row"><button class="tb" id="t-use" hidden>Dig</button><button class="tb" id="t-tool">Tools</button></div>
+    <div class="tb-row"><button class="tb" id="t-mode" hidden>Fill mode</button><button class="tb" id="t-use" hidden>Dig</button><button class="tb" id="t-tool">Tools</button></div>
     <div class="tb-row">
       <button class="tb" id="t-sonar" hidden>Sonar</button>
       <button class="tb" id="t-lights" hidden>Lights</button>
@@ -321,6 +322,7 @@ body.touch #hud{top:calc(env(safe-area-inset-top,0px) + 60px);transform:scale(.8
     <section>
       <h3>Tools</h3>
       <div class="row slider"><label for="s-shovel">Shovel power</label><span class="val" id="v-shovel"></span><input type="range" id="s-shovel" min="0.4" max="3" step="0.05"></div>
+      <div class="row slider"><label for="s-pump">Pump flow</label><span class="val" id="v-pump"></span><input type="range" id="s-pump" min="0.1" max="5" step="0.05"></div>
     </section>
     <div class="p-foot"><button id="b-journal">Fish journal</button><button id="b-fs">Full screen</button><button id="b-spawn">Back to the cabin</button></div>
     <p class="note desk-only" id="note-keys">Press Esc to free the mouse, then click the island to look around again.</p>
@@ -395,7 +397,7 @@ const DEFAULTS = {
   quality: isMobile ? 'medium' : 'high', fov: 75, headBob: true, autoRes: true,
   master: 0.85, ambience: 1, music: 0.3, sensitivity: 1, invertY: false,
   timeFlow: true, dayMinutes: 24, weather: 'auto', placeNames: true,
-  waveSize: 1, tsunamiSize: 'big', tsunamiSpeed: 1, shovelPower: 1, windSpeed: 1, glow: true, waterStyle: 'tropical', skyStyle: 'physical',
+  waveSize: 1, tsunamiSize: 'big', tsunamiSpeed: 1, shovelPower: 1, pumpFlow: 1, windSpeed: 1, glow: true, waterStyle: 'tropical', skyStyle: 'physical',
 };
 const settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(STORE_KEY) || '{}')); } catch (e) { /* storage blocked */ }
@@ -531,11 +533,17 @@ vec2 terrainHC(vec2 p){
   return texture2D(uFarTex, (p - uFarRect.xy) * uFarRect.z).rg;
 }
 float terrainH(vec2 p){ return terrainHC(p).x; }
+// 0 out at sea, 1 inside the river channel well upstream of its mouth: the sea's waves die away up the river
+float riverCalm(vec2 p){
+  vec2 uv = (p - uTerrainRect.xy) * uTerrainRect.z + uTerrainRect.w;
+  if (uv.x > 0.0 && uv.y > 0.0 && uv.x < 1.0 && uv.y < 1.0) return texture2D(uHeightTex, uv).b;
+  return 0.0;
+}
 float coastL(vec2 p){ return terrainHC(p).y; }
 vec3 skyHaze(vec3 dir){
   float sd = max(dot(dir, uSunDir), 0.0);
   vec3 c = mix(uSkyHorizon, uSkyGlow, uGlowAmt * pow(sd, 3.0) * 0.85);
-  c += uSkyGlow * (uGlowAmt * pow(sd, 14.0) * 0.45);
+  c += uSkyGlow * (uGlowAmt * pow(sd, 14.0) * 0.22);
   return c + uLightning * vec3(0.30, 0.33, 0.45);
 }
 vec3 applyFog(vec3 col, vec3 wp, float mul){
@@ -545,9 +553,10 @@ vec3 applyFog(vec3 col, vec3 wp, float mul){
   f *= 1.0 - 0.45 * smoothstep(0.0, 0.6, d.y / dist);
   return mix(col, skyHaze(d / dist), f);
 }
-float surfOff(vec2 p){ return 0.18 * sin(p.x * 0.0041 + p.y * 0.0063) + 0.12 * sin(p.y * 0.0131 - p.x * 0.0077 + 1.7) + 0.07 * sin(p.x * 0.021 - p.y * 0.017) + 0.045 * sin(p.x * 0.009 + p.y * 0.026 + 2.0); }
+float surfOff(vec2 p){ return 0.18 * sin(p.x * 0.0041 + p.y * 0.0063) + 0.12 * sin(p.y * 0.0131 - p.x * 0.0077 + 1.7) + 0.07 * sin(p.x * 0.021 - p.y * 0.017) + 0.045 * sin(p.x * 0.009 + p.y * 0.026 + 2.0)
+  + 0.03 * sin(p.x * 0.071 + p.y * 0.049 + 0.4) + 0.02 * sin(p.y * 0.113 - p.x * 0.083 + 0.7); }   // the last two bend each crest line so it is never a straight bar
 // each wave is taller in some places than others along its crest: peaks and shoulders, never a wall
-float surfVar(vec2 p, float nn){ return 0.7 + 0.2 * sin(dot(p, vec2(0.031, 0.022)) + nn * 2.3) + 0.1 * sin(dot(p, vec2(-0.017, 0.043)) + nn * 1.1 + 1.3); }
+float surfVar(vec2 p, float nn){ return 0.68 + 0.18 * sin(dot(p, vec2(0.031, 0.022)) + nn * 2.3) + 0.09 * sin(dot(p, vec2(-0.017, 0.043)) + nn * 1.1 + 1.3) + 0.06 * sin(dot(p, vec2(0.083, -0.061)) + nn * 3.7); }
 // The surf, wave by wave. Each wave rolls in along the depth contours, slowing as the water gets
 // shallow (so the crests bunch up), growing taller as it shoals, and breaking once its crest is about
 // half the depth: first a lip that pitches forward, then a white bore that runs to the sand and
@@ -567,10 +576,11 @@ float surfAt(vec2 p, float depth, float cL, out vec4 s){
   float aUn = Hb * mix(0.5, 1.0, smoothstep(3.5, 1.0, r));
   float aBr = Hb * (0.35 + 0.45 * clamp(r, 0.0, 1.0)) + 0.03;
   float a = mix(aUn, aBr, brk) * zone;
-  float wf = mix(mix(0.38, 0.12, smoothstep(2.5, 1.0, r)), mix(0.32, 0.09, smoothstep(0.0, 0.5, d)), brk);
+  // a rounded crest and a face about as wide as the wave is tall: never a slab with a vertical edge
+  float wf = mix(mix(0.4, 0.2, smoothstep(2.5, 1.0, r)), mix(0.34, 0.17, smoothstep(0.0, 0.5, d)), brk);
   float steep = clamp(smoothstep(2.2, 1.0, r) + brk, 0.0, 1.0), sh;
-  if (g > 1.0 - wf) { float x = (g - 1.0 + wf) / wf; sh = mix(x * x * (3.0 - 2.0 * x), pow(x, 2.4), steep); }
-  else { float x = g / (1.0 - wf); sh = mix(1.0 - x * x * (3.0 - 2.0 * x), pow(1.0 - x, 1.3), brk); }
+  if (g > 1.0 - wf) { float x = (g - 1.0 + wf) / wf; float sm = x * x * (3.0 - 2.0 * x); sh = mix(sm, sm * 0.55 + pow(x, 2.2) * 0.45, steep); }
+  else { float x = g / (1.0 - wf); float xb = x < 0.12 ? x * x / 0.24 : x - 0.06; sh = mix(1.0 - x * x * (3.0 - 2.0 * x), pow(max(1.0 - xb / 0.94, 0.0), 1.3), brk); }
   s = vec4(g, a, brk * zone, plunge * zone);
   return a * (sh - mix(0.2, 0.1, brk));
 }
@@ -857,6 +867,16 @@ function gridSample(H, x, z) {
   return hd + (hc - hd) * (1 - tx) + (hb - hd) * (1 - tz);
 }
 const baseGround = (x, z) => gridSample(T.h, x, z);
+// any per-vertex field of the coarse island (normals, masks), interpolated across the same triangles it is drawn with
+function gridLerp(A, stride, x, z, out, scale = 1) {
+  const fx = clamp((x - T.min) / T.cell, 0, T.res - 1e-4), fz = clamp((z - T.min) / T.cell, 0, T.res - 1e-4);
+  const i = fx | 0, j = fz | 0, tx = fx - i, tz = fz - j, n = T.n, k = j * n + i;
+  let ka, kb, kc, wa, wb, wc;
+  if (tx + tz <= 1) { ka = k; kb = k + 1; kc = k + n; wa = 1 - tx - tz; wb = tx; wc = tz; }
+  else { ka = k + n + 1; kb = k + n; kc = k + 1; wa = tx + tz - 1; wb = 1 - tx; wc = 1 - tz; }
+  for (let q = 0; q < stride; q++) out[q] = (A[ka * stride + q] * wa + A[kb * stride + q] * wb + A[kc * stride + q] * wc) * scale;
+  return out;
+}
 // the walkable surface: the island plus anything carved, dug or piled in the living-sand layer
 function groundHeight(x, z) {
   if (x < T.min + 1 || z < T.min + 1 || x > -T.min - 1 || z > -T.min - 1) return farHeight(x, z);   // out in the wider ocean
@@ -937,7 +957,8 @@ function riverQuery(x, z) {
   const A = pts[bp], B = pts[bp + 1], kind = bt < 0.5 ? A.kind : B.kind;
   if (kind !== 'upper' && kind !== 'lower') return null;
   const P0 = A.S !== undefined ? A : B, P1 = B.S !== undefined ? B : A;
-  return { d: bd, S: lerp(P0.S, P1.S, bt), W: lerp(P0.W, P1.W, bt), D: lerp(P0.D, P1.D, bt), speed: lerp(P0.speed, P1.speed, bt), slope: lerp(P0.slope, P1.slope, bt), tx: lerp(A.tx, B.tx, bt), tz: lerp(A.tz, B.tz, bt), kind, i: bp, t: bt };
+  const sUp = A.sUp !== undefined && B.sUp !== undefined ? lerp(A.sUp, B.sUp, bt) : 1e3;
+  return { d: bd, S: lerp(P0.S, P1.S, bt), W: lerp(P0.W, P1.W, bt), D: lerp(P0.D, P1.D, bt), speed: lerp(P0.speed, P1.speed, bt), slope: lerp(P0.slope, P1.slope, bt), tx: lerp(A.tx, B.tx, bt), tz: lerp(A.tz, B.tz, bt), kind, i: bp, t: bt, sUp };
 }
 function riverShape(h, q) {
   if (!q) return h;
@@ -999,6 +1020,18 @@ function carveFeatures() {
   });
   // soften each drop over a couple of points so it's a chute, not a wall
   for (let pass = 0; pass < 2; pass++) for (let i = 1; i < lower.length - 1; i++) { const a = lower[i - 1].S, b = lower[i].S, c = lower[i + 1].S; if (a > b + 0.3 || b > c + 0.3) lower[i].S = Math.min(lower[i].S + 0.0, (a + b + c) / 3 > b ? b : (a + 2 * b + c) / 4); }
+  // the mouth: the river's surface runs smoothly down to sea level where its path meets the sea and
+  // carries on a little way out, so the two waters overlap and blend instead of meeting at an edge.
+  // sUp = how far upstream of the coastline each point is (negative out at sea)
+  {
+    let mi = lower.findIndex((p, i) => i > 4 && p.h < 0.05);
+    if (mi < 0) mi = lower.length - 1;
+    lower[mi].sUp = 0;
+    for (let i = mi - 1; i >= 0; i--) lower[i].sUp = lower[i + 1].sUp + Math.hypot(lower[i + 1].x - lower[i].x, lower[i + 1].z - lower[i].z);
+    for (let i = mi + 1; i < lower.length; i++) lower[i].sUp = lower[i - 1].sUp - Math.hypot(lower[i].x - lower[i - 1].x, lower[i].z - lower[i - 1].z);
+    for (const p of lower) p.S = Math.max(p.S, 0) * smoothstep(14, 50, p.sUp);   // at sea level for the last 14 m
+    STREAM.mouthAt = { x: lower[mi].x, z: lower[mi].z };
+  }
   for (const list of [upper, lower]) for (let i = 0; i < list.length; i++) {
     const a = list[Math.max(0, i - 1)], b = list[Math.min(list.length - 1, i + 1)];
     const run = Math.max(1, Math.hypot(b.x - a.x, b.z - a.z));
@@ -1024,6 +1057,15 @@ function carveFeatures() {
   STREAM.near = nearestOnPath(pts, 19);
   forGrid(SPRING.x - 12, SPRING.z - 12, SPRING.x + 12, SPRING.z + 12, (k) => { if (!STREAM.near.has(k)) STREAM.near.set(k, { d: 0, p: 0, t: 0 }); });
   STREAM.near.forEach((v, k) => { const x = T.min + (k % T.n) * T.cell, z = T.min + Math.floor(k / T.n) * T.cell; H[k] = riverGround(x, z, H[k]); });
+  // how far the sea's waves are damped inside the river channel: not at all at the coastline, fully
+  // about 40 m upstream. The ocean shader and oceanHeight() both use this, so swell runs into the
+  // mouth and dies away up the river instead of stopping at a line
+  T.calm = new Float32Array(T.n * T.n);
+  STREAM.near.forEach((v, k) => {
+    const x = T.min + (k % T.n) * T.cell, z = T.min + Math.floor(k / T.n) * T.cell, q = riverQuery(x, z);
+    if (!q || q.kind !== 'lower') return;
+    T.calm[k] = smoothstep(q.W + 7, q.W + 1.5, q.d) * smoothstep(-12, 16, q.sUp);
+  });
   // 3) tide pools in the rock shelf of the eastern shore
   let tx = 200; while (tx < 600 && groundHeight(tx, -40) > 0.9) tx += 1;
   PLACES.tide = { x: tx - 3, z: -40, r: 30, name: 'The Tide Pools', sub: 'Eastern shore' };
@@ -1132,17 +1174,17 @@ function makeTerrainMaterial(tile) {
   return patch(m, {
     key: tile ? 'terrainTile' : 'terrain',
     uniforms: SAND.uniforms,
-    vHead: `attribute vec4 aMask; varying vec4 vMask; varying vec3 vNrmW; varying float vDig; varying float vWetS;
+    vHead: `attribute vec4 aMask; varying vec4 vMask; varying vec3 vNrmW; varying float vDig; varying float vWetS; varying float vDirt;
       #ifdef SAND_TILE
-      attribute float aDig; attribute float aWetS;
+      attribute float aDig; attribute float aWetS; attribute float aDirt;
       #endif`,
     vEnd: `vMask = aMask; vNrmW = normal;
       #ifdef SAND_TILE
-      vDig = aDig; vWetS = aWetS;
+      vDig = aDig; vWetS = aWetS; vDirt = aDirt;
       #else
-      vDig = 0.0; vWetS = 0.0;
+      vDig = 0.0; vWetS = 0.0; vDirt = 0.0;
       #endif`,
-    fHead: /* glsl */`varying vec4 vMask; varying vec3 vNrmW; varying float vDig; varying float vWetS;
+    fHead: /* glsl */`varying vec4 vMask; varying vec3 vNrmW; varying float vDig; varying float vWetS; varying float vDirt;
       uniform sampler2D uTileLook; uniform highp sampler2DArray uCarve; uniform vec4 uSandGrid;
       float hash12t(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
       float carveAt(vec2 p, out float meshFlag){
@@ -1178,7 +1220,7 @@ function makeTerrainMaterial(tile) {
       float rockW = max(vMask.b, smoothstep(0.34, 0.58, slope + (nB.r - 0.5) * 0.22));
       float sandW = max(vMask.r, under * (1.0 - rockW));
       sandW = smoothstep(0.3, 0.7, clamp(sandW + (nB.g - 0.5) * 0.55 * (1.0 - under), 0.0, 1.0));
-      float dug = smoothstep(0.02, 0.2, -vDig);
+      float dug = smoothstep(0.03, 0.22, -vDig + (nC.g - 0.5) * 0.07);   // ragged edge, not the 0.5 m grid
       sandW = max(sandW, dug * (1.0 - rockW));
       // wet sand: darkest where the last wave reached, drying as the water drains away
       float psiW = uTime / 8.5 + surfOff(wp.xz); float nW = floor(psiW); float gW = psiW - nW;
@@ -1186,7 +1228,8 @@ function makeTerrainMaterial(tile) {
       float sheen = exp(-gW * 2.6);
       float tWet = smoothstep(reach + 0.06, reach - 0.06, wp.y) * (0.55 + 0.45 * sheen);
       tWet = max(tWet, smoothstep(0.85, 0.08, wp.y) * 0.55);
-      tWet = max(tWet * (1.0 - under), max(max(uWet * 0.8, dug * 0.75), vWetS * 0.95));
+      float wetS = smoothstep(0.08, 0.85, vWetS + (nC.b - 0.5) * 0.32 + (nD.r - 0.5) * 0.12);
+      tWet = max(tWet * (1.0 - under), max(max(uWet * 0.8, dug * 0.75), wetS * 0.95));
       // sand: patches of whiter and warmer grains, darker coarse grains, the odd shell fragment
       vec3 cSand = mix(vec3(0.62, 0.53, 0.37), vec3(0.67, 0.6, 0.46), smoothstep(0.35, 0.7, nA.r));
       cSand *= 0.9 + 0.14 * nB.b + 0.08 * nC.a;
@@ -1224,6 +1267,12 @@ function makeTerrainMaterial(tile) {
       col = mix(col, vec3(0.10, 0.16, 0.06), sg * 0.75);
       // freshly dug sand is damp and darker, grooves you draw are shaded and moist
       col = mix(col, col * vec3(0.74, 0.68, 0.6), dug);
+      // dirt you shovelled in: dark, crumbly earth with clods and bits of root
+      float dirtK = smoothstep(0.03, 0.16, vDirt + (nC.r - 0.5) * 0.05);
+      { float dk = dirtK;
+        vec3 cDirt = mix(vec3(0.27, 0.19, 0.12), vec3(0.36, 0.27, 0.18), nD.g) * (0.82 + 0.3 * nE.b);
+        cDirt = mix(cDirt, vec3(0.17, 0.12, 0.08), smoothstep(0.72, 0.9, nE.r) * 0.6);
+        col = mix(col, cDirt, dk * (1.0 - rockW * 0.5)); sandW *= 1.0 - dk; dug *= 1.0 - dk; }
       col *= 1.0 - carve * 0.4 * sandW;
       col *= mix(1.0, mix(0.78, 0.6, sandW), tWet);
       col *= mix(1.0, 0.86, under);
@@ -1237,7 +1286,7 @@ function makeTerrainMaterial(tile) {
       float hDetail = sandW * nearF * (rWind * 0.0035 * (1.0 - tWet) * (1.0 - under) + rWave * 0.006 * under)
                     + (tri2.r * 0.09 + strata * 0.04) * rockW * (1.0 - an.y) * (1.0 - smoothstep(10.0, 60.0, camD))
                     + (nD.a * 0.004 + nE.a * 0.0015 + texture2D(uNoiseTex, wp.xz * 21.0).a * 0.0009 * (1.0 - smoothstep(1.5, 5.0, camD))) * nearF * (1.0 - rockW * 0.5) + nC.r * 0.02 * rockW * nearF
-                    - carve * 0.065;
+                    - carve * 0.065 + dirtK * (nD.a * 0.022 + nE.a * 0.009) * nearF;
     `,
     fRough: 'roughnessFactor = mix(mix(0.96, 0.86, rockW), 0.2, tWet * (0.45 + 0.55 * sheen));',
     fNormal: 'normal = bumpN(-vViewPosition, normal, hDetail);',
@@ -1288,9 +1337,10 @@ function buildTerrainMesh() {
     patch(new THREE.MeshLambertMaterial({ color: 0x1b3a40 }), { key: 'seabed', fColor: `if (abs(vWPos.x - ${(T.min + T.size / 2).toFixed(1)}) < ${(T.size / 2 - 1).toFixed(1)} && abs(vWPos.z - ${(T.min + T.size / 2).toFixed(1)}) < ${(T.size / 2 - 1).toFixed(1)}) discard;` }));
   far.receiveShadow = false; scene.add(far);
   // height texture for water depth, foam and shore waves
-  const hd = new Uint16Array(n * n * 2);
-  for (let i = 0; i < n * n; i++) { hd[i * 2] = THREE.DataUtils.toHalfFloat(T.h[i]); hd[i * 2 + 1] = THREE.DataUtils.toHalfFloat(clamp(T.L[i], -200, 200)); }
-  const ht = new THREE.DataTexture(hd, n, n, THREE.RGFormat, THREE.HalfFloatType);
+  // r: height, g: distance from the coast, b: how calm the river channel keeps the sea's waves
+  const hd = new Uint16Array(n * n * 4), h0 = THREE.DataUtils.toHalfFloat(0);
+  for (let i = 0; i < n * n; i++) { hd[i * 4] = THREE.DataUtils.toHalfFloat(T.h[i]); hd[i * 4 + 1] = THREE.DataUtils.toHalfFloat(clamp(T.L[i], -200, 200)); hd[i * 4 + 2] = THREE.DataUtils.toHalfFloat(T.calm ? T.calm[i] : 0); hd[i * 4 + 3] = h0; }
+  const ht = new THREE.DataTexture(hd, n, n, THREE.RGBAFormat, THREE.HalfFloatType);
   ht.magFilter = ht.minFilter = THREE.LinearFilter; ht.wrapS = ht.wrapT = THREE.ClampToEdgeWrapping; ht.needsUpdate = true;
   U.uHeightTex.value = ht;
   U.uTerrainRect.value.set(T.min, T.min, 1 / (T.cell * n), 0.5 / n);
@@ -1552,10 +1602,10 @@ function buildSky() {
         const vec3 BR = vec3(5.8e-6, 13.5e-6, 33.1e-6); const float BM = 4e-6; const vec3 OZ = vec3(0.01625, 0.047, 0.002125);
         float mu = dot(d, s), amV = airMass(d.y), amS = airMass(s.y);
         float pr = 0.0596831 * (1.0 + mu * mu);
-        float g = 0.8, pm = 0.119366 * ((1.0 - g * g) * (1.0 + mu * mu)) / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * mu, 1.5));
+        float g = 0.72, pm = 0.119366 * ((1.0 - g * g) * (1.0 + mu * mu)) / ((2.0 + g * g) * pow(1.0 + g * g - 2.0 * g * mu, 1.5));
         vec3 ext = BR * 8000.0 + BM * 1200.0 * 1.1;
         vec3 tS = exp(-(ext * 0.8 + OZ) * amS);
-        vec3 L = 34.0 * (BR * pr + BM * pm) / (BR + BM * 1.1) * (1.0 - exp(-ext * amV)) * tS;
+        vec3 L = 34.0 * (BR * pr + BM * pm * 0.55) / (BR + BM * 1.1) * (1.0 - exp(-ext * amV)) * tS;
         L += BR * 9000.0 * clamp((s.y + 0.1) * 4.0, 0.0, 1.0) * 0.25 * exp(-OZ * 6.0);
         L = pow(L, vec3(1.08));
         vec3 c = pow(1.0 - exp(-L), vec3(1.0 / 2.2));
@@ -1572,8 +1622,8 @@ function buildSky() {
         float y = dir.y, yy = max(y, 0.0);
         vec3 col = mix(uSkyHorizon, uSkyZenith, pow(yy, 0.5));
         float sd = max(dot(dir, uSunDir), 0.0);
-        col = mix(col, uSkyGlow, uGlowAmt * pow(sd, 3.0) * 0.85 * mix(1.0, pow(1.0 - yy, 4.0), 0.6));
-        col += uSkyGlow * (uGlowAmt * pow(sd, 14.0) * 0.45);
+        col = mix(col, uSkyGlow, uGlowAmt * pow(sd, 5.0) * 0.7 * mix(1.0, pow(1.0 - yy, 4.0), 0.6));
+        col += uSkyGlow * (uGlowAmt * pow(sd, 14.0) * 0.22);
         if (uSkyPhys > 0.001) {
           vec3 ph = atmo(vec3(dir.x, max(dir.y, 0.0) + 0.002, dir.z), uSunDir);
           float l = dot(ph, vec3(0.3, 0.55, 0.15));
@@ -1581,7 +1631,7 @@ function buildSky() {
           col = mix(col, ph, uSkyPhys);
         }
         float sunUp = smoothstep(-0.03, 0.02, uSunDir.y);
-        col += uSunDisk * (pow(sd, 700.0) * 0.8 + pow(sd, 64.0) * 0.07) * sunUp;
+        col += uSunDisk * (pow(sd, 1400.0) * 0.45 + pow(sd, 90.0) * 0.035) * sunUp;
         // clouds on a virtual plane high above the sea
         float cloudA = 0.0, sunCov = 0.0;
         if (y > 0.0) {
@@ -1592,11 +1642,11 @@ function buildSky() {
           float dens = smoothstep(cov, cov + 0.24, n);
           vec2 so = normalize(uSunDir.xz + vec2(1e-4)) * 0.03;
           float ns = cloudN(uv + so);
-          float lightAmt = clamp(1.0 - (ns - n) * 3.2, 0.35, 1.2);
+          float lightAmt = clamp(1.0 - (ns - n) * 3.2, 0.35, 1.06);
           float thick = smoothstep(cov, cov + 0.5, n);
           vec3 cc = mix(uCloudLit, uCloudShade, thick * 0.8) * lightAmt;
-          cc += uSkyGlow * uGlowAmt * pow(sd, 4.0) * (1.0 - thick) * 0.7;
-          cc += uSunDisk * pow(sd, 10.0) * (1.0 - thick) * 0.5 * sunUp;
+          cc += uSkyGlow * uGlowAmt * pow(sd, 9.0) * (1.0 - thick) * 0.38;
+          cc += uSunDisk * pow(sd, 16.0) * (1.0 - thick) * 0.3 * sunUp;
           cc *= 1.0 - uCloudDark * 0.55 * thick;
           float fade = smoothstep(0.0, 0.22, y);
           cloudA = dens * fade;
@@ -1608,8 +1658,8 @@ function buildSky() {
           col = skyHaze(dir);
         }
         // sun disk
-        float disk = smoothstep(0.99962, 0.99978, sd) * sunUp * (1.0 - cloudA * 0.92);
-        col = mix(col, uSunDisk * 1.08, disk);
+        float disk = smoothstep(0.99978, 0.99988, sd) * sunUp * (1.0 - cloudA * 0.92);
+        col = mix(col, uSunDisk * 0.98, disk);
         // night sky: stars, a faint galaxy band, and the moon
         if (uStars > 0.01 && y > 0.0) {
           vec3 sp = dir * 260.0; vec3 cell = floor(sp); vec3 f = fract(sp) - 0.5;
@@ -1674,8 +1724,9 @@ function applyWaterStyle() {
   WATER.uClarity.value = st.clarity; WATER.uReflK.value = st.refl;
 }
 const SURF_P = 8.5;
-const surfOffJS = (x, z) => 0.18 * Math.sin(x * 0.0041 + z * 0.0063) + 0.12 * Math.sin(z * 0.0131 - x * 0.0077 + 1.7) + 0.07 * Math.sin(x * 0.021 - z * 0.017) + 0.045 * Math.sin(x * 0.009 + z * 0.026 + 2.0);
-const surfVarJS = (x, z, nn) => 0.7 + 0.2 * Math.sin(x * 0.031 + z * 0.022 + nn * 2.3) + 0.1 * Math.sin(-x * 0.017 + z * 0.043 + nn * 1.1 + 1.3);
+const surfOffJS = (x, z) => 0.18 * Math.sin(x * 0.0041 + z * 0.0063) + 0.12 * Math.sin(z * 0.0131 - x * 0.0077 + 1.7) + 0.07 * Math.sin(x * 0.021 - z * 0.017) + 0.045 * Math.sin(x * 0.009 + z * 0.026 + 2.0)
+  + 0.03 * Math.sin(x * 0.071 + z * 0.049 + 0.4) + 0.02 * Math.sin(z * 0.113 - x * 0.083 + 0.7);
+const surfVarJS = (x, z, nn) => 0.68 + 0.18 * Math.sin(x * 0.031 + z * 0.022 + nn * 2.3) + 0.09 * Math.sin(-x * 0.017 + z * 0.043 + nn * 1.1 + 1.3) + 0.06 * Math.sin(x * 0.083 - z * 0.061 + nn * 3.7);
 const surfAmpJS = (x, z, m) => SURF_TABLE[((m % 16) + 16) % 16] * U.uSurfAmp.value * surfVarJS(x, z, m);
 const surfPsiJS = (x, z, depth, t) => t / SURF_P + surfOffJS(x, z) + 1.25 * (Math.sqrt(Math.max(depth, 0) + 0.04) - 0.2);
 // the surf at (x,z): the same maths as surfAt() in the shaders. Fills o with the phase g, the crest
@@ -1693,11 +1744,11 @@ function surfState(x, z, depth, t, o = SURF_S) {
   const aUn = Hb * lerp(0.5, 1, smoothstep(3.5, 1, r));
   const aBr = Hb * (0.35 + 0.45 * clamp(r, 0, 1)) + 0.03;
   const a = lerp(aUn, aBr, brk) * zone;
-  const wf = lerp(lerp(0.38, 0.12, smoothstep(2.5, 1, r)), lerp(0.32, 0.09, smoothstep(0, 0.5, d)), brk);
+  const wf = lerp(lerp(0.4, 0.2, smoothstep(2.5, 1, r)), lerp(0.34, 0.17, smoothstep(0, 0.5, d)), brk);
   const steep = clamp(smoothstep(2.2, 1, r) + brk, 0, 1);
   let sh;
-  if (g > 1 - wf) { const q = (g - 1 + wf) / wf; sh = lerp(q * q * (3 - 2 * q), Math.pow(q, 2.4), steep); }
-  else { const q = g / (1 - wf); sh = lerp(1 - q * q * (3 - 2 * q), Math.pow(1 - q, 1.3), brk); }
+  if (g > 1 - wf) { const q = (g - 1 + wf) / wf, sm = q * q * (3 - 2 * q); sh = lerp(sm, sm * 0.55 + Math.pow(q, 2.2) * 0.45, steep); }
+  else { const q = g / (1 - wf), qb = q < 0.12 ? q * q / 0.24 : q - 0.06; sh = lerp(1 - q * q * (3 - 2 * q), Math.pow(Math.max(1 - qb / 0.94, 0), 1.3), brk); }
   o.g = g; o.a = a; o.brk = brk * zone; o.plunge = plunge * zone; o.Hb = Hb * zone; o.n = n; o.r = r;
   return a * (sh - lerp(0.2, 0.1, brk));
 }
@@ -1725,9 +1776,14 @@ function tsunamiFlow(x, z) {
   return Math.min(10, Math.sqrt(9.8 * e) * 0.95) * (s > -260 ? 1 : 0.45);
 }
 // height of the sea surface at (x,z): the same maths as the ocean vertex shader
+// how calm the river channel keeps the sea's waves at (x, z), as in riverCalm() in the shaders
+function riverCalmJS(x, z) {
+  if (!T.calm || x < T.min || z < T.min || x > -T.min || z > -T.min) return 0;
+  return Math.max(0, gridSample(T.calm, x, z));
+}
 function oceanHeight(x, z, t) {
-  const depth0 = -groundHeight(x, z);
-  const att0 = smoothstep(0.5, 6, depth0), att = att0 * waveAmp, chop = att0 * Math.min(waveAmp, 2.0);
+  const depth0 = -groundHeight(x, z), openK = 1 - riverCalmJS(x, z);
+  const att0 = smoothstep(0.5, 6, depth0) * openK, att = att0 * waveAmp, chop = att0 * Math.min(waveAmp, 2.0);
   let px = x, pz = z;
   if (chop > 0.001) {
     let ox = 0, oz = 0;
@@ -1736,7 +1792,7 @@ function oceanHeight(x, z, t) {
   }
   let y = 0;
   if (att > 0.001) for (const w of WAVES) { const f = w.k * (w.dx * px + w.dz * pz - w.c * t); y += (w.steep / w.k) * att * Math.sin(f); }
-  return y + surfJS(px, pz, depth0, t) + tsunamiJS(px, pz, depth0);
+  return y + (openK > 0.001 ? surfJS(px, pz, depth0, t) * openK : 0) + tsunamiJS(px, pz, depth0);
 }
 
 const WATER_FRAG_COMMON = /* glsl */`
@@ -1760,7 +1816,7 @@ const WATER_FRAG_COMMON = /* glsl */`
     vec3 c = mix(uSkyHorizon, uSkyZenith, pow(yy, 0.5));
     float sd = max(dot(R, uSunDir), 0.0);
     c = mix(c, uSkyGlow, uGlowAmt * pow(sd, 3.0) * 0.85 * mix(1.0, pow(1.0 - yy, 4.0), 0.6));
-    c += uSkyGlow * uGlowAmt * pow(sd, 14.0) * 0.45;
+    c += uSkyGlow * uGlowAmt * pow(sd, 14.0) * 0.22;
     c = mix(c, mix(uSkyHorizon, vec3(dot(uSkyHorizon, vec3(0.33))), 0.4), uCloudCover * 0.55);
     return c + uLightning * vec3(0.3, 0.32, 0.42);
   }
@@ -1866,7 +1922,8 @@ function buildOcean() {
         vec2 hc = terrainHC(p);
         float h0 = hc.x;
         float depth = uLevel - h0;
-        float att0 = smoothstep(0.5, 6.0, depth), att = att0 * uWaveAmp, chop = att0 * min(uWaveAmp, 2.0);
+        float openK = 1.0 - riverCalm(p);   // waves fade out up the river channel
+        float att0 = smoothstep(0.5, 6.0, depth) * openK, att = att0 * uWaveAmp, chop = att0 * min(uWaveAmp, 2.0);
         vec3 tg = vec3(1.0, 0.0, 0.0), bn = vec3(0.0, 0.0, 1.0), disp = vec3(0.0);
         for (int i = 0; i < 6; i++) {
           vec4 w = uWaves[i];
@@ -1893,7 +1950,7 @@ function buildOcean() {
         }
         #endif
         // the surf (its slope is worked out per pixel, so the faces stay crisp at any distance)
-        vec4 ss; float s0 = surfAt(p, depth, hc.y, ss);
+        vec4 ss; float s0 = surfAt(p, depth, hc.y, ss) * openK; ss.yzw *= openK;
         disp.y += s0;
         float e = 0.8;
         float h1 = terrainH(p + vec2(e, 0.0)), h2 = terrainH(p + vec2(0.0, e));
@@ -1901,16 +1958,18 @@ function buildOcean() {
         vSG = vec2(0.0);
         #ifndef OCEAN_PPN
         { vec4 st; float es = max(spacing, 0.5);
-          vSG = vec2(surfAt(p + vec2(es, 0.0), uLevel - terrainH(p + vec2(es, 0.0)), st) - s0, surfAt(p + vec2(0.0, es), uLevel - terrainH(p + vec2(0.0, es)), st) - s0) / es; }
+          vSG = vec2(surfAt(p + vec2(es, 0.0), uLevel - terrainH(p + vec2(es, 0.0)), st) * openK - s0, surfAt(p + vec2(0.0, es), uLevel - terrainH(p + vec2(0.0, es)), st) * openK - s0) / es; }
         #endif
-        // a plunging wave's crest pitches forward over its own face
+        // a plunging wave's crest leans forward over its face: only the very top, and only where the mesh is
+        // fine enough to draw it (on a coarse mesh a big overhang turns into a slab with a vertical wall)
         float lipM = smoothstep(0.9, 0.99, ss.x) + 1.0 - smoothstep(0.0, 0.08, ss.x);
-        disp.xz += shore * ss.y * 0.7 * ss.w * lipM;
+        float topK = smoothstep(0.5, 0.95, s0 / max(ss.y, 0.05) + 0.15);
+        disp.xz += shore * ss.y * 0.28 * ss.w * lipM * topK * smoothstep(1.4, 0.5, spacing);
         // the broken wave's roller churns and heaves
         if (ss.z > 0.01) {
           float roll = ss.z * (smoothstep(0.86, 0.99, ss.x) + 1.0 - smoothstep(0.0, 0.25, ss.x));
           float tn = texture2D(uNoiseTex, p * 0.21 + vec2(uTime * 0.13, -uTime * 0.09)).r + texture2D(uNoiseTex, p * 0.57 - vec2(uTime * 0.21, uTime * 0.05)).g * 0.6 - 0.8;
-          disp.y += tn * roll * ss.y * 0.22;
+          disp.y += tn * roll * ss.y * 0.16;
         }
         vTsu = 0.0; vTsuF = 0.0; vTsuS = 0.0; vTsuP = 1e4;
         if (uTsu.w > 0.001) {
@@ -1948,6 +2007,10 @@ function buildOcean() {
         if (uBoatOn > 0.5) { vec3 bl = (uBoatInv * vec4(vWPos, 1.0)).xyz; if (bl.y > -0.08 && bl.y < 1.45 && abs(bl.x) < hullHalf(bl.z) - 0.05) discard; }
         { vec3 cl = (uCabinInv * vec4(vWPos, 1.0)).xyz; if (abs(cl.x) < 5.05 && cl.z > -6.05 && cl.z < 3.55 && cl.y > -0.25 && cl.y < 4.6) discard; }
         if (uSubOn > 0.5) { vec3 sl = (uSubInv * vec4(vWPos, 1.0)).xyz; if (abs(sl.z) < 16.5 && length(sl.xy) < 3.0) discard; }
+        // up the river the river's own surface is the water: the sea fades out beneath it where the two
+        // meet (both at sea level there), so there is never a second, lower sea surface showing through
+        float seaK = uTsu.w < 0.001 ? 1.0 - smoothstep(0.72, 0.97, riverCalm(vP0)) : 1.0;
+        if (seaK < 0.01) discard;
         vec3 toCam = cameraPosition - vWPos; float dist = length(toCam); vec3 V = toCam / dist;
         float hT = terrainH(vWPos.xz);
         float depth = uLevel - hT;
@@ -1955,14 +2018,15 @@ function buildOcean() {
         float fadeD = 1.0 / (1.0 + dist * 0.012);
         // the surf here, and its slope measured over about a pixel so the faces are sharp but never sparkle
         vec2 hc0 = terrainHC(vP0);
-        vec4 ss; float sC = surfAt(vP0, uLevel - hc0.x, hc0.y, ss);
+        float openF = 1.0 - riverCalm(vP0);
+        vec4 ss; float sC = surfAt(vP0, uLevel - hc0.x, hc0.y, ss) * openF; ss.yzw *= openF;
         vec2 sg = vSG;
         #ifdef OCEAN_PPN
         { float ee = clamp(length(fwidth(vP0)) * 1.2, 0.15, 3.0);
           vec4 sTmp;
           float sX = surfAt(vP0 + vec2(ee, 0.0), uLevel - terrainH(vP0 + vec2(ee, 0.0)), sTmp);
           float sZ = surfAt(vP0 + vec2(0.0, ee), uLevel - terrainH(vP0 + vec2(0.0, ee)), sTmp);
-          sg = vec2(sX - sC, sZ - sC) / ee; }
+          sg = vec2(sX * openF - sC, sZ * openF - sC) / ee; }
         #endif
         vec3 Ng = normalize(vN);
         vec2 grad = -Ng.xz / max(Ng.y, 0.15) + sg;
@@ -2082,6 +2146,7 @@ function buildOcean() {
             vec3 bg = vec3(refrAt(off * 1.05).r, refrAt(off).g, refrAt(off * 0.95).b);
             col += bg * (1.0 - alpha); alpha = 1.0;
           }
+          col *= seaK; alpha *= seaK;
         } else {
           vec3 I = -V;
           vec3 Tw = refract(I, -N, 1.333);
@@ -2112,14 +2177,39 @@ function buildOcean() {
 // freshwater surfaces: the pools (flat, with ripples from the falls or the spring) and the river (flowing)
 function freshMaterial(flowing) {
   return new THREE.ShaderMaterial({
-    uniforms: { ...U, ...WATER, ...WFX.uniforms, uRipple: { value: new THREE.Vector3(0, 0, 0) }, uPoolC: { value: new THREE.Vector4(POOL.x, POOL.z, POOL.r, 0) }, uPoolExit: { value: new THREE.Vector3(0, 0, 0) } },
+    uniforms: { ...U, ...WATER, ...WFX.uniforms, uRipple: { value: new THREE.Vector3(0, 0, 0) }, uPoolC: { value: new THREE.Vector4(POOL.x, POOL.z, POOL.r, 0) }, uPoolExit: { value: new THREE.Vector3(0, 0, 0) }, uDam: { value: new THREE.Vector4(0, 0, 0, 0) } },
     vertexShader: /* glsl */`
       ${COMMON}
-      attribute float aFlow; attribute float aFoam; attribute vec3 aRiv;${flowing ? ' attribute vec2 aDir; varying vec2 vDir;' : ''}
+      attribute float aFlow; attribute float aFoam; attribute vec3 aRiv;${flowing ? ' attribute vec2 aDir; varying vec2 vDir; attribute float aSea; varying float vSea; uniform vec4 uWaves[6]; uniform float uWaveAmp; uniform float uLevel; uniform vec4 uDam; varying float vLift; varying float vStill;' : ''}
       varying vec3 vWPos; varying vec3 vN; varying float vCrest; varying vec2 vUv; varying float vFlow; varying float vFoamA; varying vec3 vRiv;
       void main(){${flowing ? ' vDir = aDir;' : ''}
         vec4 wp = modelMatrix * vec4(position, 1.0);
-        ${flowing ? 'wp.y += (sin(wp.x * 0.9 + uTime * 2.1) * sin(wp.z * 0.8 - uTime * 1.7) * 0.025 + sin(uv.y * 9.0 - uTime * 6.0 + uv.x * 3.0) * 0.03 * aFoam) * (0.4 + aFoam);' : ''}
+        ${flowing ? `wp.y += (sin(wp.x * 0.9 + uTime * 2.1) * sin(wp.z * 0.8 - uTime * 1.7) * 0.025 + sin(uv.y * 9.0 - uTime * 6.0 + uv.x * 3.0) * 0.03 * aFoam) * (0.4 + aFoam);
+        vSea = aSea; vLift = 0.0; vStill = 0.0;
+        // a dam across the river (see updateDams): dry below it, a rising pond above it
+        if (uDam.w > 0.5) {
+          float S0 = position.y, bed = S0 - aRiv.z, dv = uv.y - uDam.x;
+          float yDown = max(max(bed + 0.12, bed < 0.0 ? min(S0, 0.0) : -1e4), S0 - uDam.y);
+          float yUp = max(S0, uDam.z);
+          float kD = smoothstep(0.05, 0.6, dv), kU = 1.0 - smoothstep(-0.05, 0.05, dv);
+          float y = mix(mix(S0, yUp, kU), yDown, kD);
+          vLift = y - S0; wp.y += vLift;
+          vStill = kD * clamp(uDam.y / max(aRiv.z - 0.12, 0.2), 0.0, 1.0) + kU * clamp((uDam.z - S0) / 0.25, 0.0, 1.0);
+        }
+        // near the mouth the sea's swell and surf run up into the river exactly as they move the ocean
+        // here (same waves, same damping), so the two surfaces rise and fall together
+        if (aSea < 60.0) {
+          vec2 p = wp.xz; vec2 hc = terrainHC(p); float depth = uLevel - hc.x;
+          float openK = 1.0 - riverCalm(p);
+          float att0 = smoothstep(0.5, 6.0, depth) * openK, att = att0 * uWaveAmp, chop = att0 * min(uWaveAmp, 2.0);
+          vec3 d = vec3(0.0);
+          for (int i = 0; i < 6; i++) {
+            vec4 w = uWaves[i]; float k = 6.28318 / w.w, c = sqrt(9.8 / k), f = k * (dot(w.xy, p) - c * uTime);
+            d += vec3(w.x * w.z / k * chop * cos(f), w.z / k * att * sin(f), w.y * w.z / k * chop * cos(f));
+          }
+          vec4 ss; d.y += surfAt(p, depth, hc.y, ss) * openK;
+          wp.xyz += d;
+        }` : ''}
         vWPos = wp.xyz; vN = vec3(0.0, 1.0, 0.0); vCrest = 0.0; vUv = uv; vFlow = aFlow; vFoamA = aFoam; vRiv = aRiv;
         gl_Position = projectionMatrix * viewMatrix * wp;
       }`,
@@ -2128,27 +2218,29 @@ function freshMaterial(flowing) {
       ${WATER_FRAG_COMMON}
       ${WFX_GLSL}
       uniform vec3 uRipple; uniform vec4 uPoolC; uniform vec3 uPoolExit;
-      varying vec2 vUv; varying float vFlow; varying float vFoamA; varying vec3 vRiv;${flowing ? ' varying vec2 vDir;' : ''}
+      varying vec2 vUv; varying float vFlow; varying float vFoamA; varying vec3 vRiv;${flowing ? ' varying vec2 vDir; varying float vSea; varying float vLift; varying float vStill;' : ''}
       void main(){
         vec3 toCam = cameraPosition - vWPos; float dist = length(toCam); vec3 V = toCam / dist;
         ${flowing ? `
         float rd = abs(vRiv.x), W = vRiv.y, Dp = vRiv.z;
         float bed = rd < W ? -Dp * pow(max(1.0 - (rd / W) * (rd / W), 0.0), 0.8) : (rd - W) * 0.55;
-        float thick = -bed;
-        float spd = 0.5 + vFlow * 4.0;
+        float thick = -bed + vLift;
+        float still = clamp(vStill, 0.0, 1.0);
+        float spd = (0.5 + vFlow * 4.0) * (1.0 - 0.92 * still);
+        float foamA = vFoamA * (1.0 - still);
         // two phases of flow-mapped normals, cross-faded, so the surface streams downhill without stretching
         float ph0 = fract(uTime * 0.35), ph1 = fract(uTime * 0.35 + 0.5), bl = abs(ph0 - 0.5) * 2.0;
         vec2 base = vec2(vUv.x * 2.2, vUv.y * 1.4);
         vec2 fuv = base - vec2(0.0, ph0 * spd * 0.6), fuv2 = base * 1.9 + 0.37 - vec2(0.0, ph1 * spd * 0.6);
         vec3 n1 = mix(texture2D(uNormTex, fuv).xyz, texture2D(uNormTex, fuv2).xyz, bl) * 2.0 - 1.0;
         vec3 n2 = texture2D(uNormTex, base * 3.7 - vec2(0.0, uTime * spd * 0.3)).xyz * 2.0 - 1.0;
-        float nk = 0.22 + smoothstep(0.4, 1.0, vFoamA) * 0.55 + vFlow * 0.12;
+        float nk = 0.22 + smoothstep(0.4, 1.0, foamA) * 0.55 + vFlow * 0.12;
         // ripples lie along the current (x across it, y along it), stretched downstream
         vec2 Tv = normalize(vDir + vec2(1e-5)), Tu = vec2(-Tv.y, Tv.x);
         vec2 gr = vec2((n1.x + n2.x * 0.5) * nk, (n1.y + n2.y * 0.5) * nk * 1.6);
         // where it pours over a drop: standing waves that hold still while the water races through them,
         // and a broken chop riding over them
-        { float rap = smoothstep(0.35, 0.95, vFoamA);
+        { float rap = smoothstep(0.35, 0.95, foamA);
           float swp = vUv.y * 30.0 + sin(vUv.x * 11.0 + vUv.y * 3.0) * 1.4;
           gr.y += (cos(swp) * 0.5 + cos(swp * 1.9 + 1.3 - uTime * 1.5) * 0.18) * rap;
           gr.x += sin(vUv.x * 25.0 + vUv.y * 9.0 - uTime * 3.0) * 0.14 * rap;
@@ -2184,9 +2276,12 @@ function freshMaterial(flowing) {
           float Tr = exp(-path * 0.32);
           vec3 body = mix(vec3(0.17, 0.46, 0.38), vec3(0.03, 0.17, 0.16), smoothstep(0.3, 2.5, thick)) * uWaterLight;
           ${flowing ? `
+          // the river takes on the sea's colour as it meets it
+          float mouthK = 1.0 - smoothstep(6.0, 60.0, vSea);
+          body = mix(body, mix(uShallow, uMid, smoothstep(0.5, 3.0, thick)) * uWaterLight * 0.9, mouthK * 0.8);
           // white water only where the river runs fast over the rocks, along the banks, and in its eddies
           // clear water: thin lines of bubbles drawn out along the current, white water only in the real rapids
-          float rap = smoothstep(0.55, 0.95, vFoamA);
+          float rap = smoothstep(0.55, 0.95, foamA);
           float line1 = texture2D(uNoiseTex, vec2(vUv.x * 7.0, vUv.y * 0.11 - uTime * spd * 0.07)).a;
           float line2 = texture2D(uNoiseTex, vec2(vUv.x * 13.0 + 0.4, vUv.y * 0.2 - uTime * spd * 0.11)).r;
           float lines = smoothstep(0.8, 0.93, line1) * 0.28 + smoothstep(0.84, 0.95, line2) * 0.18;
@@ -2197,8 +2292,8 @@ function freshMaterial(flowing) {
           float foam = foamMask(vWPos.xz * 1.2, churn * 1.1, vec2(uTime * 0.02, -uTime * 0.015) + normalize(vWPos.xz - uRipple.xy + 1e-3) * uTime * 0.0) * 0.9;`}
           foam = clamp(max(foam, foamMask(vWPos.xz, rp.z, vec2(0.0))), 0.0, 0.92);
           // water full of air bubbles goes milky, so the white of a chute fades into it instead of ending in hard lines
-          body = mix(body, vec3(0.5, 0.7, 0.64) * uWaterLight, clamp(${flowing ? 'smoothstep(0.5, 0.95, vFoamA) * 0.7' : 'churn * 0.5'}, 0.0, 1.0));
-          vec3 spec = uSpecCol * (pow(sp, 500.0) * 3.0 + pow(sp, 60.0) * 0.12 + pow(sp, 2000.0) * 5.0) * (1.0 - foam);
+          body = mix(body, vec3(0.5, 0.7, 0.64) * uWaterLight, clamp(${flowing ? 'smoothstep(0.5, 0.95, foamA) * 0.7' : 'churn * 0.5'}, 0.0, 1.0));
+          vec3 spec = uSpecCol * (pow(sp, 500.0) * 1.7 + pow(sp, 60.0) * 0.07 + pow(sp, 2000.0) * 2.6) * (1.0 - foam);
           col = body * (1.0 - Tr) * (1.0 - F) + refl * F + spec;
           alpha = 1.0 - Tr * (1.0 - F);
           col = mix(col, uFoamCol * (0.85 + 0.15 * N.y), foam); alpha = mix(alpha, 1.0, foam);
@@ -2214,6 +2309,11 @@ function freshMaterial(flowing) {
             vec2 off = N.xz * 40.0 * clamp(thick, 0.0, 1.5) * edge * (uScreen.y / 900.0) / (1.0 + dist * 0.08) * (1.0 - foam);
             col += refrAt(off) * (1.0 - alpha); alpha = 1.0;
           }
+          ${flowing ? `// at the mouth it thins away into the sea (drawn just before it) over about twenty metres
+          { float mk = smoothstep(-15.0, 10.0, vSea);
+            // and its sides melt into the sea too, rather than ending on a straight line
+            mk *= mix(1.0, smoothstep(1.0, 0.35, abs(vRiv.x) / max(vRiv.y, 0.5)), 1.0 - smoothstep(0.0, 6.0, vSea));   // only where the sea is there underneath
+            if (mk < 0.01) discard; col *= mk; alpha *= mk; }` : ''}
         } else {
           col = uWaterFog * 0.9 + uSpecCol * 0.05; alpha = 0.85; col *= alpha;
         }
@@ -2234,17 +2334,18 @@ function poolDisk(x, y, z, r, ripple) {
   m.material.uniforms.uRipple.value.copy(ripple);
   m.position.set(x, y, z); m.renderOrder = 6; markWater(m); scene.add(m); return m;
 }
-function riverRibbon(pts) {
-  const ACROSS = 9, P = [], UV = [], FL = [], FO = [], RV = [], DR = [], I = [];
+function riverRibbon(pts, kind) {
+  const ACROSS = 9, P = [], UV = [], FL = [], FO = [], RV = [], DR = [], SE = [], I = [];
   let v = 0;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
     if (i > 0) v += Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) / 6;
     const nx = -p.tz, nz = p.tx, half = p.W + 0.9;
+    p.rv = v;
     for (let k = 0; k < ACROSS; k++) {
       const u = k / (ACROSS - 1), off = (u - 0.5) * 2 * half;
       P.push(p.x + nx * off, p.S, p.z + nz * off);
-      UV.push(u, v); RV.push(off, p.W, p.D); DR.push(p.tx, p.tz);
+      UV.push(u, v); RV.push(off, p.W, p.D); DR.push(p.tx, p.tz); SE.push(p.sUp !== undefined ? p.sUp : 1e3);
       FL.push(clamp((p.speed - 0.55) / 4, 0, 1)); FO.push(smoothstep(0.06, 0.16, p.slope));
     }
     if (i > 0) { const a = (i - 1) * ACROSS; for (let k = 0; k < ACROSS - 1; k++) I.push(a + k, a + k + ACROSS, a + k + 1, a + k + 1, a + k + ACROSS, a + k + ACROSS + 1); }
@@ -2256,51 +2357,89 @@ function riverRibbon(pts) {
   g.setAttribute('aFoam', new THREE.Float32BufferAttribute(FO, 1));
   g.setAttribute('aRiv', new THREE.Float32BufferAttribute(RV, 3));
   g.setAttribute('aDir', new THREE.Float32BufferAttribute(DR, 2));
+  g.setAttribute('aSea', new THREE.Float32BufferAttribute(SE, 1));
   g.setIndex(I); g.computeBoundingSphere();
-  const m = new THREE.Mesh(g, freshMaterial(true)); m.renderOrder = 6; markWater(m); scene.add(m); return m;
+  const mat = freshMaterial(true);
+  // drawn just in front of the sea where the two overlap at the mouth, so it fades over it cleanly
+  mat.polygonOffset = true; mat.polygonOffsetFactor = -1; mat.polygonOffsetUnits = -4;
+  const m = new THREE.Mesh(g, mat); m.renderOrder = 6; markWater(m); scene.add(m); m.frustumCulled = false; m.userData.kind = kind; return m;
+}
+// The path the falls take: the river slides to the edge of the plateau, then falls, and wherever the
+// rock face is in the way the water runs down over it instead of through it. Everything is measured
+// along the falls' direction (d, from the lip) and up (y); the water has real thickness (th) and width (hw).
+function fallsPath(lip, topY, botY, dirX, dirZ, lipW) {
+  const ax = -dirZ, az = dirX;
+  const gAt = (d, half) => { let m = -1e9; for (const t of [-0.85, -0.45, 0, 0.45, 0.85]) m = Math.max(m, groundHeight(lip.x + dirX * d + ax * t * half, lip.z + dirZ * d + az * t * half)); return m; };
+  let edgeD = 0; while (edgeD < 14 && groundHeight(lip.x + dirX * edgeD, lip.z + dirZ * edgeD) > topY - 0.7) edgeD += 0.25;
+  const out = [];
+  const rec = (d, y, f) => out.push({ d, y, f, th: lerp(0.55, 1.5, Math.pow(f, 0.8)), hw: lipW * (1 + f * 0.35) });
+  // its top sits just on the river's surface as it slides to the brink (no hump above the river)
+  const y0 = topY + 0.05 - 0.55 * 0.5;
+  for (let d = -3; d < edgeD - 0.01; d += 0.5) rec(d, y0, 0);
+  let d = edgeD, y = y0, vd = Math.max(1.8, (lip.speed || 1.5) * 1.3), vy = 0, travel = 0;
+  const dt = 0.008;
+  for (let step = 0; step < 9000 && y > botY - 0.25; step++) {
+    vy -= 9.8 * dt;
+    const d0 = d, y0 = y;
+    d += vd * dt; y += vy * dt;
+    const f = clamp((topY - y) / Math.max(1, topY - botY), 0, 1), th = lerp(0.55, 1.5, Math.pow(f, 0.8)), hw = lipW * (1 + f * 0.35);
+    const g = gAt(d, hw);
+    if (y < g + th * 0.5) {
+      // on a ledge or the sloping face: it pours along the rock
+      y = g + th * 0.5;
+      const sl = (gAt(d + 0.3, hw) - gAt(d - 0.3, hw)) / 0.6, sp = Math.hypot(vd, vy) * 0.99, l = Math.hypot(1, sl);
+      if (sl < -0.05) { vd = sp / l; vy = sp * sl / l; } else { vd = Math.max(1.3, sp * 0.75); vy = 0; }
+    }
+    // and never sinks into the cliff behind it
+    for (let k = 0; k < 60 && gAt(d - th * 0.5, hw) > y - 0.05; k++) d += 0.03;
+    travel += Math.hypot(d - d0, y - y0);
+    if (travel > 0.4) { travel = 0; rec(d, y, f); }
+  }
+  rec(d, Math.max(y, botY - 0.2), 1);
+  return { pts: out, edgeD, endD: d, endX: lip.x + dirX * d, endZ: lip.z + dirZ * d };
 }
 function buildFreshwater() {
   const lip = STREAM.lip;
   const topY = lip.S, botY = POOL.level;
   const dirX = -WF.nx, dirZ = -WF.nz;
-  const fallLen = Math.hypot(POOL.x + WF.nx * (POOL.r * 0.5) - lip.x, POOL.z - lip.z);
-  const endOut = 0.3 + fallLen * 0.55;
-  const endX = lip.x + dirX * endOut, endZ = lip.z + dirZ * endOut;
+  const lipW = (lip.W || 2.5) * 0.92;
+  const FP = fallsPath(lip, topY, botY, dirX, dirZ, lipW);
+  const fallLen = FP.endD, endX = FP.endX, endZ = FP.endZ;
   const pd = poolDisk(POOL.x, POOL.level, POOL.z, POOL.r + 1.4, new THREE.Vector3(endX, endZ, 1));
   { const L0 = STREAM.lower[0]; if (L0) { const dx = L0.x - POOL.x, dz = L0.z - POOL.z, l = Math.hypot(dx, dz) || 1; pd.material.uniforms.uPoolExit.value.set(dx / l, dz / l, 1); } }
   poolDisk(SPRING.x, SPRING.level, SPRING.z, SPRING.r + 0.8, new THREE.Vector3(SPRING.x, SPRING.z, 0.45));
   STREAM.ribbons = [];
-  if (STREAM.upper.length > 2) STREAM.ribbons.push(riverRibbon(STREAM.upper));
-  const lowerVisible = STREAM.lower.filter(p => p.S > 0.04);
-  if (lowerVisible.length > 2) STREAM.ribbons.push(riverRibbon([...(STREAM.leadIn || []), ...lowerVisible]));
+  if (STREAM.upper.length > 2) STREAM.ribbons.push(riverRibbon(STREAM.upper, 'upper'));
+  const lowerVisible = STREAM.lower.filter(p => p.S > 0.04 || (p.sUp !== undefined && p.sUp > -16));
+  if (lowerVisible.length > 2) STREAM.ribbons.push(riverRibbon([...(STREAM.leadIn || []), ...lowerVisible], 'lower'));
   STREAM.mouth = lowerVisible[lowerVisible.length - 1];
-  // the falls: a thick, aerated curtain (outer shell + inner core), not a flat sheet
-  // where the plateau actually ends in front of the lip
-  let edgeD = 0; while (edgeD < 14 && groundHeight(lip.x + dirX * edgeD, lip.z + dirZ * edgeD) > topY - 0.7) edgeD += 0.25;
-  const dropH = topY - botY, tauMax = Math.sqrt(2 * (dropH + 0.2) / 9.8);
-  const v0 = Math.max(1.4, (endOut - edgeD) / tauMax);
-  const lipW = (lip.W || 2.5) * 0.92;
-  // one continuous sheet: on the river surface just upstream of the lip, over the edge, then free fall
-  const fallPath = (u) => {
-    const uSlide = 0.18;
-    if (u < uSlide) { const k = u / uSlide; const d = lerp(-2.2, edgeD, k); return { d, y: topY + 0.03 - 0.22 * k * k, t: 0 }; }
-    const k = (u - uSlide) / (1 - uSlide), tau = k * tauMax;
-    return { d: edgeD + v0 * tau, y: topY - 0.19 - 0.5 * 9.8 * tau * tau, t: k };
-  };
+  // the falls: a thick body of water (an outer shell and a denser core) that follows the path above,
+  // its cross-section always square to the flow: deep where it slides over the lip, wide and full as it falls
+  const FPts = FP.pts;
+  for (let i = 0; i < FPts.length; i++) {
+    const a = FPts[Math.max(0, i - 1)], b = FPts[Math.min(FPts.length - 1, i + 1)];
+    const td = b.d - a.d, ty = b.y - a.y, l = Math.hypot(td, ty) || 1;
+    FPts[i].nd = -ty / l; FPts[i].ny = td / l;          // across the flow, in the (d, y) plane, pointing up/out
+    if (FPts[i].ny < 0) { FPts[i].nd *= -1; FPts[i].ny *= -1; }
+  }
+  const fallMats = [];
   const curtain = (scaleW, scaleT, speed, phase) => {
-    const segV = 40, ring = 14, P = [], UV = [], AT = [], NR = [], I = [];
+    const segV = FPts.length - 1, ring = 18, P = [], UV = [], AT = [], NR = [], I = [];
     let arc = 0, prev = null;
     for (let iv = 0; iv <= segV; iv++) {
-      const u = iv / segV, fp = fallPath(u), t = fp.t;
-      const hw = lipW * scaleW * (1 + t * 0.35), ht = (0.06 + 0.7 * t * t + 0.12 * t) * scaleT;
+      const fp = FPts[iv], t = fp.f;
+      const hw = fp.hw * scaleW, ht = fp.th * 0.5 * scaleT;
       const cx = lip.x + dirX * fp.d, cz = lip.z + dirZ * fp.d, y = fp.y;
       if (prev) arc += Math.hypot(cx - prev[0], y - prev[1], cz - prev[2]);
       prev = [cx, y, cz];
       for (let k = 0; k <= ring; k++) {
+        // a rounded slab: flat-ish faces, round edges (a superellipse), lumpy as it breaks up
         const a = (k / ring) * TAU, ca = Math.cos(a), sa = Math.sin(a);
-        const side = ca * hw, depth = sa * ht * (1 + 0.25 * Noise.n2(k * 0.7, iv * 0.4 + phase));
-        P.push(cx - dirZ * side + dirX * depth, y + (t === 0 ? sa * ht * 0.6 : 0), cz + dirX * side + dirZ * depth);
-        NR.push(-dirZ * ca * 0.3 + dirX * sa, t === 0 ? 0.8 : 0, dirX * ca * 0.3 + dirZ * sa);
+        const cs = Math.sign(ca) * Math.pow(Math.abs(ca), 0.55), sn = Math.sign(sa) * Math.pow(Math.abs(sa), 0.7);
+        const lump = 1 + 0.18 * t * Noise.n2(k * 0.7 + phase, iv * 0.35);
+        const side = cs * hw, thk = sn * ht * lump;
+        P.push(cx - dirZ * side + dirX * fp.nd * thk, y + fp.ny * thk, cz + dirX * side + dirZ * fp.nd * thk);
+        NR.push(-dirZ * ca * 0.5 + dirX * fp.nd * sa, fp.ny * sa, dirX * ca * 0.5 + dirZ * fp.nd * sa);
         UV.push(k / ring, arc / 2.6); AT.push(t);
       }
     }
@@ -2310,14 +2449,14 @@ function buildFreshwater() {
     g.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2)); g.setAttribute('aT', new THREE.Float32BufferAttribute(AT, 1));
     g.setIndex(I); g.computeBoundingSphere();
     const mat = new THREE.ShaderMaterial({
-      uniforms: { ...U, ...WATER, ...WFX.uniforms, uSpeed: { value: speed }, uPhase: { value: phase } },
+      uniforms: { ...U, ...WATER, ...WFX.uniforms, uSpeed: { value: speed }, uPhase: { value: phase }, uFlow: { value: 1 } },
       vertexShader: `${COMMON}
         attribute float aT; uniform float uPhase; varying vec2 vUv; varying vec3 vWPos; varying vec3 vNw; varying float vT;
         void main(){ vUv = uv; vT = aT; vNw = normal; vec4 wp = modelMatrix * vec4(position, 1.0);
           wp.xyz += normal * (sin(uv.y * 5.0 - uTime * 6.0 + uv.x * 12.0 + uPhase) * 0.06 + sin(uv.y * 13.0 - uTime * 11.0 + uv.x * 31.0) * 0.025) * (0.3 + aT);
           vWPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
       fragmentShader: `${COMMON}
-        uniform vec3 uFoamCol; uniform vec3 uWaterLight; uniform vec3 uSpecCol; uniform float uSpeed; uniform float uPhase; uniform sampler2D uFoamTex;
+        uniform vec3 uFoamCol; uniform vec3 uWaterLight; uniform vec3 uSpecCol; uniform float uSpeed; uniform float uPhase; uniform sampler2D uFoamTex; uniform float uFlow;
         varying vec2 vUv; varying vec3 vWPos; varying vec3 vNw; varying float vT;
         void main(){
           vec3 V = normalize(cameraPosition - vWPos), Nn = normalize(vNw);
@@ -2336,15 +2475,18 @@ function buildFreshwater() {
           c += uSpecCol * pow(max(dot(reflect(-V, Nn), uLightDir), 0.0), 40.0) * 0.25 * (1.0 - white);
           c += uFoamCol * smoothstep(0.75, 0.95, s4) * 0.25 * vT;
           float sideFade = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
-          float a = clamp(0.32 + white * 0.62 + fres * 0.22 + smoothstep(0.82, 0.97, s4) * 0.2, 0.0, 0.96);
+          // a full body of water: you can't see through it once it has broken up into white water
+          float a = clamp(0.46 + white * 0.55 + fres * 0.22 + smoothstep(0.82, 0.97, s4) * 0.2 + vT * 0.15, 0.0, 0.97);
           a *= smoothstep(0.0, 1.2, vUv.y * 2.6);                           // fades in on the river surface
           // strands breaking into separate falling streaks near the bottom
           a *= 1.0 - smoothstep(0.55, 1.0, vT) * smoothstep(0.55, 0.25, s2) * 0.6;
+          a *= uFlow;                                                            // runs dry when the river above is dammed
           vec3 col = applyFog(c, vWPos, 1.0);
           gl_FragColor = vec4(col * a, a); }`,
       transparent: true, depthWrite: false, side: THREE.DoubleSide,
       blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
     });
+    fallMats.push(mat);
     const m = new THREE.Mesh(g, mat); m.renderOrder = 7; scene.add(m); return m;
   };
   curtain(1, 1, 1, 0);
@@ -2353,9 +2495,9 @@ function buildFreshwater() {
   {
     const g = new THREE.CircleGeometry(5.5, 48).rotateX(-Math.PI / 2);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { ...U, ...WATER, ...WFX.uniforms, uC: { value: new THREE.Vector2(endX, endZ) } },
+      uniforms: { ...U, ...WATER, ...WFX.uniforms, uC: { value: new THREE.Vector2(endX, endZ) }, uFlow: { value: 1 } },
       vertexShader: `${COMMON} uniform vec2 uC; varying vec3 vWPos; void main(){ vec4 wp = modelMatrix * vec4(position, 1.0); wp.y += sin(length(wp.xz - uC) * 3.0 - uTime * 7.0) * 0.03; vWPos = wp.xyz; gl_Position = projectionMatrix * viewMatrix * wp; }`,
-      fragmentShader: `${COMMON} uniform vec3 uFoamCol; uniform vec2 uC; uniform sampler2D uFoamTex; varying vec3 vWPos;
+      fragmentShader: `${COMMON} uniform vec3 uFoamCol; uniform vec2 uC; uniform sampler2D uFoamTex; uniform float uFlow; varying vec3 vWPos;
         void main(){
           vec2 d = vWPos.xz - uC; float r = length(d); vec2 dir = d / (r + 1e-3);
           float amt = smoothstep(5.4, 0.6, r) * 1.05;
@@ -2363,15 +2505,16 @@ function buildFreshwater() {
           float v = texture2D(uFoamTex, q * 0.5).r * 0.6 + texture2D(uFoamTex, vWPos.xz * 0.35 + dir * uTime * 0.25).g * 0.4;
           float thr = 1.0 - clamp(amt, 0.0, 1.0) * 0.92;
           float f = smoothstep(thr - 0.06, thr + 0.1, v) * clamp(amt * 2.0, 0.0, 1.0);
-          float a = f * 0.92;
+          float a = f * 0.92 * uFlow;
           vec3 c = applyFog(uFoamCol * (0.9 + 0.1 * v), vWPos, 1.0);
           gl_FragColor = vec4(c * a, a); }`,
       transparent: true, depthWrite: false, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
     });
+    fallMats.push(mat);
     const m = new THREE.Mesh(g, mat); m.position.set(endX, POOL.level + 0.04, endZ); m.renderOrder = 7; scene.add(m);
   }
   WATER.uFallPos.value.set(endX, endZ);
-  STREAM.fall = { x: endX, z: endZ, topY, botY, lipX: lip.x, lipZ: lip.z, dirX, dirZ, fallLen };
+  STREAM.fall = { x: endX, z: endZ, topY, botY, lipX: lip.x, lipZ: lip.z, dirX, dirZ, fallLen, path: FPts, edgeD: FP.edgeD, mats: fallMats };
   PLACES.falls = { x: POOL.x, z: POOL.z, r: 28, name: 'Hidden Falls', sub: `A ${Math.round(topY - botY)} m drop into a jungle pool` };
   PLACES.spring = { x: SPRING.x, z: SPRING.z, r: 14, name: 'The Spring', sub: 'Where the river begins' };
 }
@@ -2406,6 +2549,7 @@ vec3 ripple(vec2 p){
 float foamMask(vec2 p, float amt, vec2 flow){
   if (amt <= 0.002) return 0.0;
   vec2 w = (texture2D(uNoiseTex, p * 0.045 + flow * 0.3).rg - 0.5) * 2.2;  // warp the cells so they never look regular
+  w += (texture2D(uNoiseTex, p * 0.31 - flow * 0.7).ba - 0.5) * 0.7;       // and bend their walls locally
   float a = texture2D(uFoamTex, (p + w) * 0.17 + flow).r, b = texture2D(uFoamTex, (p - w * 0.6) * 0.52 - flow * 1.6 + 0.37).g;
   float v = a * 0.55 + b * 0.45;
   float am = clamp(amt, 0.0, 1.0);
@@ -2432,12 +2576,28 @@ vec3 refrAt(vec2 off){ return texture2D(uRefrTex, clamp((gl_FragCoord.xy + off) 
 // ---- a tileable foam texture: Worley cell edges (the web) plus small bubbles ----
 function makeFoamTexture() {
   const S = 256, data = new Uint8Array(S * S * 4), r = mulberry32(4242);
-  const worley = (cells, seedOff) => {
+  // tileable smooth value noise, used to bend the foam cells so their walls curve and wander
+  const vnoise = (n) => {
+    const g = new Float32Array(n * n); for (let i = 0; i < g.length; i++) g[i] = r();
+    return (fx, fy) => {
+      const x = ((fx % n) + n) % n, y = ((fy % n) + n) % n, i = Math.floor(x), j = Math.floor(y), tx = x - i, ty = y - j;
+      const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty), i1 = (i + 1) % n, j1 = (j + 1) % n;
+      const a = g[j * n + i], b = g[j * n + i1], c = g[j1 * n + i], d = g[j1 * n + i1];
+      return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+    };
+  };
+  const nA = vnoise(6), nB = vnoise(13), nC = vnoise(29), nD = vnoise(61);
+  const fbm = (u, v) => nA(u * 6, v * 6) * 0.45 + nB(u * 13, v * 13) * 0.3 + nC(u * 29, v * 29) * 0.17 + nD(u * 61, v * 61) * 0.08;
+  const worley = (cells, warp) => {
     const pts = new Float32Array(cells * cells * 2);
-    for (let i = 0; i < pts.length; i++) pts[i] = r();
+    for (let i = 0; i < pts.length; i++) pts[i] = 0.15 + 0.7 * r();
     const out = new Float32Array(S * S * 2);
     for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-      const fx = (x / S) * cells, fy = (y / S) * cells, cx = Math.floor(fx), cy = Math.floor(fy);
+      const u = x / S, v = y / S;
+      // warp the lookup so cell walls are wavy, not straight polygon edges
+      const fx = u * cells + (nB(u * 13 + 3.1, v * 13) - 0.5) * warp + (nD(u * 61, v * 61 + 7.7) - 0.5) * warp * 0.35;
+      const fy = v * cells + (nB(u * 13, v * 13 + 5.3) - 0.5) * warp + (nD(u * 61 + 2.2, v * 61) - 0.5) * warp * 0.35;
+      const cx = Math.floor(fx), cy = Math.floor(fy);
       let f1 = 9, f2 = 9;
       for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
         const gx = cx + i, gy = cy + j, wx = ((gx % cells) + cells) % cells, wy = ((gy % cells) + cells) % cells;
@@ -2449,14 +2609,18 @@ function makeFoamTexture() {
     }
     return out;
   };
-  const A = worley(7, 0), B = worley(17, 1), Cb = worley(40, 2);
-  for (let i = 0; i < S * S; i++) {
-    const webA = 1 - Math.min(1, (A[i * 2 + 1] - A[i * 2]) * 2.2);       // thick foam along big cell borders
-    const webB = 1 - Math.min(1, (B[i * 2 + 1] - B[i * 2]) * 3.0);
-    const cellFill = 1 - Math.min(1, A[i * 2] * 0.9);                      // fuller towards the cell middles
-    const bub = Cb[i * 2] < 0.28 ? 0 : 1;                                  // little round holes = bubbles
-    const v1 = Math.min(1, webA * 0.62 + webB * 0.3 + cellFill * 0.25) * (0.75 + 0.25 * bub);
-    const v2 = Math.min(1, webB * 0.7 + (1 - Math.min(1, Cb[i * 2] * 2.2)) * 0.25 + webA * 0.2);
+  const A = worley(7, 1.6), B = worley(17, 1.4), Cb = worley(40, 0.6);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const i = y * S + x, u = x / S, v = y / S, fb = fbm(u, v);
+    // soft, rounded ridges (a gaussian across the wall rather than a sharp V)
+    const eA = A[i * 2 + 1] - A[i * 2], eB = B[i * 2 + 1] - B[i * 2];
+    const webA = Math.exp(-eA * eA * 9) * (0.55 + 0.45 * nC(u * 29 + 9, v * 29));   // walls thicken and thin along their length
+    const webB = Math.exp(-eB * eB * 16);
+    const cellFill = 1 - Math.min(1, A[i * 2] * 0.9);
+    const bub = Cb[i * 2] < 0.26 + 0.08 * nD(u * 61, v * 61) ? 0 : 1;               // round bubble holes of mixed sizes
+    const cloud = Math.min(1, Math.max(0, (fb - 0.3) * 1.7));
+    const v1 = Math.min(1, webA * 0.5 + webB * 0.22 + cellFill * 0.18 + cloud * 0.42) * (0.78 + 0.22 * bub);
+    const v2 = Math.min(1, webB * 0.55 + (1 - Math.min(1, Cb[i * 2] * 2.2)) * 0.2 + webA * 0.15 + cloud * 0.3);
     data[i * 4] = Math.round(v1 * 255); data[i * 4 + 1] = Math.round(v2 * 255); data[i * 4 + 2] = Math.round(bub * 255); data[i * 4 + 3] = 255;
   }
   const t = new THREE.DataTexture(data, S, S, THREE.RGBAFormat);
@@ -2852,7 +3016,7 @@ function setupGlow() {
   if (!GLOW.quad) {
     GLOW.mats.bright = glowShader(/* glsl */`
       uniform sampler2D uSrc; uniform vec2 uTexel; varying vec2 vUv;
-      vec3 pick(vec2 uv){ vec3 c = texture2D(uSrc, uv).rgb; float l = max(c.r, max(c.g, c.b)); float k = smoothstep(0.88, 1.0, l); return c * k * k; }
+      vec3 pick(vec2 uv){ vec3 c = texture2D(uSrc, uv).rgb; float l = max(c.r, max(c.g, c.b)); float k = smoothstep(0.93, 1.0, l); return c * k * k * k; }
       void main(){
         vec3 c = pick(vUv + uTexel * vec2(-1.0, -1.0)) + pick(vUv + uTexel * vec2(1.0, -1.0)) + pick(vUv + uTexel * vec2(-1.0, 1.0)) + pick(vUv + uTexel * vec2(1.0, 1.0));
         gl_FragColor = vec4(c * 0.25, 1.0); }`, { uSrc: { value: null }, uTexel: { value: new THREE.Vector2() } });
@@ -2886,7 +3050,7 @@ function renderGlow() {
   M.blur.uniforms.uSrc.value = a4.texture; M.blur.uniforms.uDir.value.set(2 / a8.width, 0); glowPass(M.blur, b8);
   M.blur.uniforms.uSrc.value = b8.texture; M.blur.uniforms.uDir.value.set(0, 2 / a8.height); glowPass(M.blur, a8);
   M.add.uniforms.uA.value = a4.texture; M.add.uniforms.uB.value = a8.texture;
-  M.add.uniforms.uAmt.value = 0.42 * GLOW.amount * (P.eyeUnder ? 0.5 : 1);
+  M.add.uniforms.uAmt.value = 0.26 * GLOW.amount * (P.eyeUnder ? 0.5 : 1);
   const ac = renderer.autoClear; renderer.autoClear = false;
   glowPass(M.add, null);
   renderer.autoClear = ac; renderer.toneMapping = tm;
@@ -3847,15 +4011,19 @@ function erodePass(c, dt) {
       const di = q === 0 ? 1 : q === 1 ? N : q === 2 ? -1 : -N, dp = q === 0 ? 1 : q === 1 ? P : q === 2 ? -1 : -P;
       const cj = ci + di, pj = pi + dp;
       if (q >= 2 && c.touched[cj]) continue; // that pair is handled from the other side
-      const d = B[pi] - B[pj], lim = (w > 0.01 || Wt[pj] > 0.01 ? 0.5 : 0.72) * L;
-      if (Math.abs(d) > lim) {
-        const m = (Math.abs(d) - lim) * 0.22;
+      const dirtK = c.Dt ? Math.min(1, (c.Dt[ci] + c.Dt[cj]) * 4) : 0;    // packed dirt stands steeper than loose sand
+      const d = B[pi] - B[pj], lim = (w > 0.01 || Wt[pj] > 0.01 ? 0.5 + dirtK * 0.25 : 0.72 + dirtK * 0.3) * L;
+      // running water also evens out the sand it carries, so channels come out as smooth grooves, not steps
+      const soft = w > 0.01 && Wt[pj] > 0.01 && c.src[ci] !== 1 && c.src[cj] !== 1 && c.sandy[ci] && c.sandy[cj] ? Math.abs(d) * Math.min(0.08, dt * 1.2) : 0;
+      if (Math.abs(d) > lim || soft > 0.0005) {
+        const m = Math.max(0, Math.abs(d) - lim) * 0.22 + soft;
         if (d > 0) { c.G[ci] -= m; c.G[cj] += m; B[pi] -= m; B[pj] += m; } else { c.G[ci] += m; c.G[cj] -= m; B[pi] += m; B[pj] -= m; }
+        if (c.Dt) { const from = d > 0 ? ci : cj, to = d > 0 ? cj : ci, mv = Math.min(c.Dt[from], m); c.Dt[from] -= mv; c.Dt[to] += mv; }
         touchCell(c, cj); changed = true;
       }
     }
     // waves running up the beach slowly fill holes and flatten piles in the swash zone
-    if (c.sea > c.base[ci] && c.base[ci] > -0.4 && c.base[ci] < 1.3) { const f = Math.min(1, 0.035 * dt); B[pi] -= c.G[ci] * f; c.G[ci] *= 1 - f; changed = true; }
+    if (c.sea > c.base[ci] && c.base[ci] > -0.4 && c.base[ci] < 1.3) { const f = Math.min(1, 0.035 * dt); B[pi] -= c.G[ci] * f; c.G[ci] *= 1 - f; if (c.Dt) c.Dt[ci] *= 1 - f; changed = true; }
   }
   if (changed) c.meshDirty = true;
 }
@@ -3938,6 +4106,54 @@ function cornerDelta(c, i, j) {
   const gi = c.cx * SN + i, gj = c.cz * SN + j;
   return (cellDelta(gi - 1, gj - 1) + cellDelta(gi, gj - 1) + cellDelta(gi - 1, gj) + cellDelta(gi, gj)) * 0.25;
 }
+// The height change at a global grid corner, worked out the same way whichever chunk asks (so
+// neighbouring chunks agree exactly along their shared edge). Next to a chunk that isn't drawn in
+// fine detail (the coarse island shows there) it eases to zero over a few cells instead of
+// creasing at the edge.
+const _shownCache = new Map();
+function chunkShownG(cx, cz) {
+  const k = chunkKey(cx, cz); let v = _shownCache.get(k);
+  if (v === undefined) { v = meshShown(getChunk(cx, cz)); _shownCache.set(k, v); }
+  return v;
+}
+function rampG(gi, gj) {
+  const cx = Math.floor(gi / SN), cz = Math.floor(gj / SN), li = gi - cx * SN, lj = gj - cz * SN, R = 3;
+  let m = R;
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+    // distance (in corners) from this corner to chunk (cx+dx, cz+dz)
+    const ex = dx < 0 ? li : dx > 0 ? SN - li : 0, ez = dz < 0 ? lj : dz > 0 ? SN - lj : 0, e = Math.max(ex, ez);
+    if (e >= m) continue;
+    if (!chunkShownG(cx + dx, cz + dz)) m = e;
+    // a corner on a chunk edge also belongs to the chunk behind it
+    if (dx === 0 && li === 0 && !chunkShownG(cx - 1, cz + dz)) m = 0;
+    if (dz === 0 && lj === 0 && !chunkShownG(cx + dx, cz - 1)) m = 0;
+    if (li === 0 && lj === 0 && !chunkShownG(cx - 1, cz - 1)) m = 0;
+  }
+  const t = m / R; return t * t * (3 - 2 * t);
+}
+function deltaG(gi, gj) {
+  const r = rampG(gi, gj); if (r <= 0) return 0;
+  return (cellDelta(gi - 1, gj - 1) + cellDelta(gi, gj - 1) + cellDelta(gi - 1, gj) + cellDelta(gi, gj)) * 0.25 * r;
+}
+// how deep the sand was dug at a corner, averaged like the heights so it fades smoothly
+function cellG(gi, gj) {
+  if (gi < 0 || gj < 0) return 0;
+  const c = SAND.chunks.get(chunkKey(gi >> 6, gj >> 6)); if (!c) return 0;
+  return c.G[(gj & 63) * 64 + (gi & 63)];
+}
+function cellDirt(gi, gj) {
+  if (gi < 0 || gj < 0) return 0;
+  const c = SAND.chunks.get(chunkKey(gi >> 6, gj >> 6)); if (!c || !c.Dt) return 0;
+  return c.Dt[(gj & 63) * 64 + (gi & 63)];
+}
+function cornerDirt(c, i, j) {
+  const gi = c.cx * SN + i, gj = c.cz * SN + j;
+  return (cellDirt(gi - 1, gj - 1) + cellDirt(gi, gj - 1) + cellDirt(gi - 1, gj) + cellDirt(gi, gj)) * 0.25;
+}
+function cornerDig(c, i, j) {
+  const gi = c.cx * SN + i, gj = c.cz * SN + j;
+  return (cellG(gi - 1, gj - 1) + cellG(gi, gj - 1) + cellG(gi - 1, gj) + cellG(gi, gj)) * 0.25;
+}
 function buildChunkMesh(c) {
   const N = SN + 1, CS = SAND.CS;
   const E = 4 * N; // skirt vertices, one per edge vertex
@@ -3945,8 +4161,10 @@ function buildChunkMesh(c) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array((N * N + E) * 3), 3));
     g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array((N * N + E) * 3), 3));
-    const mask = new Uint8Array((N * N + E) * 4);
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const m = vIndex(c.x0 + i * CS, c.z0 + j * CS) * 4; mask.set(T.mask.subarray(m, m + 4), (j * N + i) * 4); }
+    // the sand, grass, rock and path weights, blended exactly as the island under it blends them
+    // (not snapped to the nearest island vertex, which made 4-6 m blocks)
+    const mask = new Uint8Array((N * N + E) * 4), mq = [0, 0, 0, 0];
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { gridLerp(T.mask, 4, c.x0 + i * CS, c.z0 + j * CS, mq); for (let q = 0; q < 4; q++) mask[(j * N + i) * 4 + q] = Math.round(mq[q]); }
     c.edge = [];
     for (let i = 0; i < N; i++) c.edge.push(i, (N - 1) * N + i);
     for (let j = 0; j < N; j++) c.edge.push(j * N, j * N + N - 1);
@@ -3954,6 +4172,7 @@ function buildChunkMesh(c) {
     g.setAttribute('aMask', new THREE.BufferAttribute(mask, 4, true));
     g.setAttribute('aDig', new THREE.BufferAttribute(new Float32Array(N * N + E), 1));
     g.setAttribute('aWetS', new THREE.BufferAttribute(new Float32Array(N * N + E), 1));
+    g.setAttribute('aDirt', new THREE.BufferAttribute(new Float32Array(N * N + E), 1));
     const idx = new Uint16Array(SN * SN * 6 + 4 * SN * 6); let q = 0;
     for (let j = 0; j < SN; j++) for (let i = 0; i < SN; i++) { const a = j * N + i, b = a + 1, cc = a + N, d = cc + 1; idx[q++] = a; idx[q++] = cc; idx[q++] = b; idx[q++] = b; idx[q++] = cc; idx[q++] = d; }
     const side = (list) => { for (let t = 0; t < list.length - 1; t++) { const a = list[t], b = list[t + 1], as = N * N + c.edge.indexOf(a), bs = N * N + c.edge.indexOf(b); idx[q++] = a; idx[q++] = as; idx[q++] = b; idx[q++] = b; idx[q++] = as; idx[q++] = bs; } };
@@ -3968,23 +4187,33 @@ function buildChunkMesh(c) {
     c.heights = new Float32Array(N * N);
     scene.add(c.mesh);
   }
-  const g = c.mesh.geometry, pos = g.attributes.position.array, nor = g.attributes.normal.array, dig = g.attributes.aDig.array, H = c.heights;
+  const g = c.mesh.geometry, pos = g.attributes.position.array, nor = g.attributes.normal.array, dig = g.attributes.aDig.array, H = c.heights, dirt = g.attributes.aDirt.array;
+  // heights for this chunk's corners plus one ring beyond, so slopes at the edges match the neighbours'
+  const M = N + 2;
+  if (!c.dl) c.dl = new Float32Array(M * M);
+  const D = c.dl, nb = [0, 0, 0], gi0 = c.cx * SN - 1, gj0 = c.cz * SN - 1;
+  _shownCache.clear();
+  for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) D[j * M + i] = deltaG(gi0 + i, gj0 + j);
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const k = j * N + i, x = c.x0 + i * CS, z = c.z0 + j * CS;
-    H[k] = baseGround(x, z) + cornerDelta(c, i, j);
+    H[k] = baseGround(x, z) + D[(j + 1) * M + i + 1];
     pos[k * 3] = x; pos[k * 3 + 1] = H[k]; pos[k * 3 + 2] = z;
-    const gi = Math.min(SN - 1, i), gj = Math.min(SN - 1, j);
-    dig[k] = c.G[gj * SN + gi];
+    dig[k] = cornerDig(c, i, j);
+    dirt[k] = cornerDirt(c, i, j);
   }
+  // lighting: the island's own smooth normal, tilted by whatever was dug or piled here, so an
+  // untouched patch shades exactly like the ground around it (no facets, no square outline)
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const k = j * N + i;
-    const hl = H[j * N + Math.max(0, i - 1)], hr = H[j * N + Math.min(N - 1, i + 1)], hd = H[Math.max(0, j - 1) * N + i], hu = H[Math.min(N - 1, j + 1) * N + i];
-    const sx = (i > 0 && i < N - 1) ? 2 : 1, sz = (j > 0 && j < N - 1) ? 2 : 1;
-    let nx = (hl - hr) / (sx * CS), nz = (hd - hu) / (sz * CS); const l = Math.hypot(nx, 1, nz);
-    nor[k * 3] = nx / l; nor[k * 3 + 1] = 1 / l; nor[k * 3 + 2] = nz / l;
+    const o = (j + 1) * M + i + 1, dl = D[o - 1], dr = D[o + 1], dd = D[o - M], du = D[o + M];
+    gridLerp(T.nrm, 3, c.x0 + i * CS, c.z0 + j * CS, nb);
+    const ny = Math.max(0.05, nb[1]);
+    const gx = -nb[0] / ny + (dr - dl) / (2 * CS), gz = -nb[2] / ny + (du - dd) / (2 * CS);
+    const l = Math.hypot(gx, 1, gz);
+    nor[k * 3] = -gx / l; nor[k * 3 + 1] = 1 / l; nor[k * 3 + 2] = -gz / l;
   }
-  c.edge.forEach((k, e) => { const o = (N * N + e) * 3; pos[o] = pos[k * 3]; pos[o + 1] = pos[k * 3 + 1] - 0.6; pos[o + 2] = pos[k * 3 + 2]; nor[o] = nor[k * 3]; nor[o + 1] = nor[k * 3 + 1]; nor[o + 2] = nor[k * 3 + 2]; dig[N * N + e] = dig[k]; });
-  g.attributes.position.needsUpdate = g.attributes.normal.needsUpdate = g.attributes.aDig.needsUpdate = true;
+  c.edge.forEach((k, e) => { const o = (N * N + e) * 3; pos[o] = pos[k * 3]; pos[o + 1] = pos[k * 3 + 1] - 0.6; pos[o + 2] = pos[k * 3 + 2]; nor[o] = nor[k * 3]; nor[o + 1] = nor[k * 3 + 1]; nor[o + 2] = nor[k * 3 + 2]; dig[N * N + e] = dig[k]; dirt[N * N + e] = dirt[k]; });
+  g.attributes.position.needsUpdate = g.attributes.normal.needsUpdate = g.attributes.aDig.needsUpdate = g.attributes.aDirt.needsUpdate = true;
   writeWet(c);
   g.computeBoundingSphere();
   c.meshDirty = false;
@@ -4036,7 +4265,7 @@ function makeSandWaterMaterial() {
       vec3 skyR(vec3 R){ float yy = max(R.y, 0.0); return mix(uSkyHorizon, uSkyZenith, pow(yy, 0.5)); }
       void main(){
         // a film thinner than a couple of centimetres is just wet ground (the sand shader darkens it)
-        float show = smoothstep(0.012, 0.07, vW);
+        float show = smoothstep(0.012, 0.07, vW + (texture2D(uNoiseTex, vWPos.xz * 0.6).r - 0.5) * 0.035);
         if (show < 0.01) discard;
         vec3 toCam = cameraPosition - vWPos; float dist = length(toCam); vec3 V = toCam / dist;
         float sp = length(vVel);
@@ -4158,7 +4387,8 @@ function writeWet(c) {
   if (!c.wet) { if (c.wetShown) { arr.fill(0); a.needsUpdate = true; c.wetShown = false; } return; }
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const gi = c.cx * SN + i, gj = c.cz * SN + j;
-    arr[j * N + i] = Math.max(cellWet(gi - 1, gj - 1), cellWet(gi, gj - 1), cellWet(gi - 1, gj), cellWet(gi, gj));
+    const a0 = cellWet(gi - 1, gj - 1), a1 = cellWet(gi, gj - 1), a2 = cellWet(gi - 1, gj), a3 = cellWet(gi, gj);
+    arr[j * N + i] = Math.max(a0, a1, a2, a3) * 0.45 + (a0 + a1 + a2 + a3) * 0.1375;
   }
   c.edge.forEach((k, e) => { arr[N * N + e] = arr[k]; });
   a.needsUpdate = true; c.wetShown = true;
@@ -4269,6 +4499,153 @@ function digAt(x, z, tx, tz) {
   // digging wipes out any writing or footprints under the shovel
   carveRegion(x - r, z - r, x + r, z + r, (px, pz, cur) => (Math.hypot(px - x, pz - z) < r ? 0 : cur));
   return removed;
+}
+// ---- placing dirt ----
+// the shovel can also throw down dirt (as much as you like): build up banks, fill holes, dam the river
+function canFill(x, z) {
+  const b = baseGround(x, z);
+  if (slopeAt(x, z) > 0.62) return 'steep';
+  if (b < -3.5) return 'deep';
+  for (const p of PLATFORMS) { const dx = x - p.x, dz = z - p.z, c = Math.cos(p.rot), s = Math.sin(p.rot); if (Math.abs(dx * c - dz * s) < p.hx + 0.3 && Math.abs(dx * s + dz * c) < p.hz + 0.3) return 'wood'; }
+  let blocked = false; COLLIDERS.query(x, z, 2, c => { if (Math.hypot(c.x - x, c.z - z) < c.r + 0.4) blocked = true; });
+  return blocked ? 'blocked' : null;
+}
+function fillAt(x, z) {
+  const r = DIG.radius * 1.6, h = DIG.depth * 2.2, ext = r + 0.2;
+  let added = 0;
+  for (let gz = Math.floor((z - ext - SAND.O) / SAND.CS); gz <= Math.floor((z + ext - SAND.O) / SAND.CS); gz++)
+    for (let gx = Math.floor((x - ext - SAND.O) / SAND.CS); gx <= Math.floor((x + ext - SAND.O) / SAND.CS); gx++) {
+      const c = getChunk(gx >> 6, gz >> 6, true); if (!c) continue;
+      const k = (gz & 63) * SN + (gx & 63);
+      const wx = SAND.O + (gx + 0.5) * SAND.CS, wz = SAND.O + (gz + 0.5) * SAND.CS, d = Math.hypot(wx - x, wz - z);
+      if (d > r) continue;
+      // a rounded heap; thrown into water it slumps flatter
+      const add = h * Math.pow(1 - (d / r) ** 2, 1.4);
+      if (add < 0.004) continue;
+      if (!c.Dt) c.Dt = new Float32Array(SN * SN);
+      c.G[k] += add; c.Dt[k] += add; added += add * SAND.CS * SAND.CS;
+      touchCell(c, k); c.meshDirty = true; c.digDirty = true; activateSim(c);
+      const pi = ((k / SN | 0) + 1) * SP + (k % SN) + 1;
+      c.sim.b[pi] = c.base[k] + c.R[k] + c.G[k];
+      c.sim.w[pi] = Math.max(0, c.sim.w[pi] - add);      // the dirt pushes the water aside
+      if (c.sandy) c.sandy[k] = 1;
+    }
+  carveRegion(x - r, z - r, x + r, z + r, (px, pz, cur) => (Math.hypot(px - x, pz - z) < r * 0.8 ? 0 : cur));
+  return added;
+}
+
+// ---- damming the river ----
+// Pile dirt across the channel higher than the water and the river stops there: below the dam it
+// drains away to puddles (and if you dam it above the falls, the falls run dry); above it the water
+// backs up into a pond that rises until it pours over the dam or spills out over the lowest bank.
+// Dig through the dam and it all lets go again.
+const DAM = { list: [], active: { upper: null, lower: null }, t: 0, lvlT: 0, spillT: 0 };
+function crossMin(p, W) {
+  const nx = -p.tz, nz = p.tx; let m = 1e9;
+  for (let off = -W - 0.4; off <= W + 0.4 + 1e-6; off += 0.3) m = Math.min(m, groundHeight(p.x + nx * off, p.z + nz * off));
+  return m;
+}
+// look at the river's cross-sections around (x, z) after the ground there has changed
+function surveyRiver(x, z) {
+  if (!STREAM.all.length) return;
+  const q = riverQuery(x, z); if (!q || q.d > q.W + 4 || (q.kind !== 'upper' && q.kind !== 'lower')) return;
+  const pts = STREAM.all;
+  let best = null;
+  for (let j = Math.max(0, q.i - 4); j <= Math.min(pts.length - 1, q.i + 5); j++) {
+    const p = pts[j]; if (p.kind !== q.kind || p.S === undefined || p.tx === undefined) continue;
+    const m = crossMin(p, p.W);
+    if (!best || m > best.crest) best = { j, crest: m, S: p.S };
+  }
+  if (!best) return;
+  const blocked = best.crest > best.S + 0.02 && best.S > 0.05;
+  let dm = DAM.list.find(d => d.kind === q.kind && Math.abs(d.pi - best.j) < 9);
+  if (!dm && !blocked) return;
+  if (!dm) {
+    dm = { kind: q.kind, pi: best.j, rv: pts[best.j].rv || 0, S: best.S, D: pts[best.j].D, crest: best.crest, blocked: true, drop: 0, pond: best.S, spill: null, bank: 1e9, x: pts[best.j].x, z: pts[best.j].z };
+    DAM.list.push(dm);
+    toast('You dammed the river', q.kind === 'upper' ? 'The falls will run dry below it' : 'It’s drying up downstream');
+  }
+  if (blocked) { dm.pi = best.j; dm.rv = pts[best.j].rv || 0; dm.S = best.S; dm.D = pts[best.j].D; dm.x = pts[best.j].x; dm.z = pts[best.j].z; }
+  if (dm.blocked && !blocked) toast('The dam broke', 'The river runs again');
+  dm.crest = best.crest; dm.blocked = blocked;
+  // the lowest point of the banks along the pond, where it will spill out if it rises that far
+  if (blocked) {
+    dm.bank = 1e9; dm.spill = null;
+    const pondMax = Math.min(dm.crest, q.kind === 'lower' ? POOL.level : 1e9);
+    for (let j = dm.pi - 1, run = 0; j >= 0 && run < 70; j--) {
+      const p = pts[j], n = pts[j + 1]; if (p.kind !== q.kind || p.S === undefined || p.tx === undefined) break;
+      run += Math.hypot(n.x - p.x, n.z - p.z);
+      if (p.S > pondMax + 0.3) break;
+      for (const side of [-1, 1]) for (const off of [1.0, 2.2]) {
+        const bx = p.x - p.tz * side * (p.W + off), bz = p.z + p.tx * side * (p.W + off), h = groundHeight(bx, bz);
+        if (h < dm.bank) { dm.bank = h; dm.spill = { x: bx, z: bz, ox: -p.tz * side, oz: p.tx * side }; }
+      }
+    }
+  }
+  pickActiveDams();
+}
+function pickActiveDams() {
+  DAM.active.upper = DAM.active.lower = null;
+  for (const d of DAM.list) if (d.blocked || d.drop > 0.01 || d.pond > d.S + 0.01) { const a = DAM.active[d.kind]; if (!a || d.pi < a.pi) DAM.active[d.kind] = d; }
+}
+// the water level of the river at a riverQuery() result, allowing for any dam
+function riverLevelAt(q) {
+  const dm = q && DAM.active[q.kind]; if (!dm) return q.S;
+  const at = q.i + q.t;
+  if (at > dm.pi + 0.6) { const bed = q.S - q.D; return Math.max(bed + 0.12, bed < 0 ? Math.min(q.S, 0) : -1e9, q.S - dm.drop); }
+  if (at > dm.pi - 80) return Math.max(q.S, dm.pond);
+  return q.S;
+}
+// how still the river is at q because of a dam (0 running normally, 1 not moving at all)
+function riverStillAt(q) {
+  const dm = q && DAM.active[q.kind]; if (!dm) return 0;
+  const at = q.i + q.t;
+  if (at > dm.pi + 0.6) return clamp(dm.drop / Math.max(0.2, q.D - 0.12), 0, 1);
+  if (at > dm.pi - 80 && dm.pond > q.S) return clamp((dm.pond - q.S) / 0.25, 0, 1);
+  return 0;
+}
+function updateDams(dt) {
+  if (!DAM.list.length && !DAM.live) return;
+  DAM.live = DAM.list.length > 0;      // one more pass after the last dam goes, to put everything back
+  for (const d of DAM.list) {
+    // rises behind the dam until it tops the dam or finds the lowest bank
+    const top = Math.min(d.crest, d.bank + 0.03, d.kind === 'lower' ? POOL.level : 1e9);
+    const overTop = d.blocked && d.crest <= d.bank + 0.03;
+    if (d.blocked) d.pond = Math.min(top, d.pond + dt * 0.045);
+    else d.pond = Math.max(d.S, d.pond - dt * 0.25);
+    const full = d.D - 0.12;
+    const wantDrop = d.blocked && !(overTop && d.pond >= top - 0.005) ? full : 0;
+    d.drop = wantDrop > d.drop ? Math.min(wantDrop, d.drop + dt * 0.09) : Math.max(wantDrop, d.drop - dt * 0.35);
+    // pouring out over the bank once the pond is up to it
+    if (d.blocked && d.spill && d.pond >= d.bank + 0.02) {
+      DAM.spillT -= dt;
+      if (DAM.spillT <= 0) { DAM.spillT = 0.25; pourAt(d.spill.x + d.spill.ox * 0.8, d.spill.z + d.spill.oz * 0.8, 0.35); }
+    }
+  }
+  DAM.list = DAM.list.filter(d => d.blocked || d.drop > 0.005 || d.pond > d.S + 0.005);
+  pickActiveDams();
+  for (const r of STREAM.ribbons || []) {
+    const u = r.material.uniforms.uDam; if (!u) continue;
+    const dm = DAM.active[r.userData.kind];
+    if (dm) u.value.set(dm.rv, dm.drop, dm.pond, 1); else u.value.w = 0;
+  }
+  // the river cells of the sand layer follow the new levels, so dug channels fill (or don't) to match
+  DAM.lvlT -= dt;
+  if (DAM.lvlT <= 0) {
+    DAM.lvlT = 0.6;
+    for (const c of SAND.list) {
+      if (!c.sim) continue;
+      for (let k = 0; k < SN * SN; k++) {
+        if (c.src[k] !== 1) continue;
+        const q = riverQuery(c.x0 + ((k % SN) + 0.5) * SAND.CS, c.z0 + (((k / SN) | 0) + 0.5) * SAND.CS);
+        if (q) c.lvl[k] = riverLevelAt(q);
+      }
+    }
+  }
+  // the falls run dry when the river above them is dammed
+  const up = DAM.active.upper;
+  STREAM.fallFlow = up ? 1 - clamp(up.drop / Math.max(0.2, up.D - 0.12), 0, 1) : 1;
+  if (STREAM.fall && STREAM.fall.mats) for (const m of STREAM.fall.mats) m.uniforms.uFlow.value = STREAM.fallFlow;
 }
 // river chunks are shaped at load so the channel is smooth up close
 function buildRiverChunks() {
@@ -6432,7 +6809,8 @@ function updatePump(dt) {
   // pumping: whenever the pump is down in some water, water comes out of the end
   const src = PUMP.carry === 'pump' ? null : pumpSource();
   PUMP.running = !!src;
-  const q = src ? 0.32 * dt : 0;                      // m³ this frame
+  const flow = settings.pumpFlow ?? 1;                 // set in the settings panel
+  const q = src ? 0.32 * flow * dt : 0;               // m³ this frame
   if (src === 'pool') TUB.poolLevel = Math.max(0, TUB.poolLevel - q / (35 * 1.8));
   else if (src === 'tub') TUB.level = Math.max(0, TUB.level - q / (4.6 * 0.8));
   else if (src === 'sand') { PUMP.acc += q; if (PUMP.acc > 0.04) { scoopAt(PUMP.pos.x, PUMP.pos.z, PUMP.acc); PUMP.acc = 0; } }
@@ -6441,16 +6819,16 @@ function updatePump(dt) {
     const e = nodes[N - 1], ew = poolWhere(e.x, e.z);
     if (ew === 'pool' && src !== 'pool') TUB.poolLevel = Math.min(1, TUB.poolLevel + q / (35 * 1.8));
     else if (ew === 'tub' && src !== 'tub') TUB.level = Math.min(1, TUB.level + q / (4.6 * 0.8));
-    else if (!ew && SAND.count && waterAt(e.x, e.z).level < e.y - 0.05 && groundHeight(e.x, e.z) > -0.5) { PUMP.pourAcc += q; if (PUMP.pourAcc > 0.06) { pourAt(e.x, e.z, PUMP.pourAcc); PUMP.pourAcc = 0; } }
+    else if (!ew && SAND.count && waterAt(e.x, e.z).level < e.y - 0.05 && groundHeight(e.x, e.z) > -0.5) { PUMP.pourAcc += q; if (PUMP.pourAcc > 0.06 * Math.max(1, flow)) { pourAt(e.x, e.z, PUMP.pourAcc); PUMP.pourAcc = 0; } }
     // the gush
     _pf2.subVectors(e, nodes[N - 3]).normalize();
-    const n = Math.round(dt * 90 * Q.particles);
-    for (let i = 0; i < n; i++) sprayDrop(e.x, e.y + 0.02, e.z, _pf2.x * rand(1.5, 2.6) + rand(-0.25, 0.25), _pf2.y * 2 + rand(0.3, 1.0), _pf2.z * rand(1.5, 2.6) + rand(-0.25, 0.25), rand(0.4, 0.8), rand(0.02, 0.045));
+    const fk = Math.sqrt(flow), n = Math.round(dt * 90 * Q.particles * Math.min(2.5, fk));
+    for (let i = 0; i < n; i++) sprayDrop(e.x, e.y + 0.02, e.z, _pf2.x * rand(1.5, 2.6) * fk + rand(-0.25, 0.25), _pf2.y * 2 * fk + rand(0.3, 1.0), _pf2.z * rand(1.5, 2.6) * fk + rand(-0.25, 0.25), rand(0.4, 0.8), rand(0.02, 0.045) * Math.min(1.6, fk));
     PUMP.ripT = (PUMP.ripT || 0) - dt;
     if (PUMP.ripT <= 0) { PUMP.ripT = 0.12; const w = waterAt(e.x + _pf2.x * 0.8, e.z + _pf2.z * 0.8); if (w.level > groundHeight(e.x, e.z) + 0.03) rippleDrop(e.x + _pf2.x * 0.8, e.z + _pf2.z * 0.8, 0.5, 0.03, 0.4); }
   }
   const dc = Math.min(PUMP.pos.distanceTo(camera.position), nodes[N - 1].distanceTo(camera.position));
-  if (AUDIO.pump) AUDIO.pump(PUMP.running ? 1 / (1 + (dc / 5) ** 2) : 0);
+  if (AUDIO.pump) AUDIO.pump(PUMP.running ? Math.min(1.4, 0.5 + 0.5 * Math.sqrt(flow)) / (1 + (dc / 5) ** 2) : 0);
 }
 
 // ───────────────────── 16c. The biplane ─────────────────────
@@ -8655,7 +9033,7 @@ FX.update = function (dt, t) {
   FX_SCALE.value = renderer.domElement.height / (2 * Math.tan((camera.fov * Math.PI) / 360));
   // waterfall mist and spray when nearby
   if (STREAM.fall && Math.hypot(P.pos.x - STREAM.fall.x, P.pos.z - STREAM.fall.z) < 150) {
-    FX.mistT += dt * 30 * Q.particles;
+    FX.mistT += dt * 30 * Q.particles * (STREAM.fallFlow ?? 1);
     while (FX.mistT > 1) {
       FX.mistT -= 1;
       const f = STREAM.fall;
@@ -8890,12 +9268,12 @@ const ATMO_BR = [5.8e-6, 13.5e-6, 33.1e-6], ATMO_OZ = [0.01625, 0.047, 0.002125]
 const airMassJS = y => { y = Math.max(y, 0); const deg = Math.acos(Math.min(1, y)) * 180 / Math.PI; return 1 / (y + 0.50572 * Math.pow(Math.max(96.07995 - deg, 0.01), -1.6364)); };
 function atmoJS(dx, dy, dz, s) {
   const l0 = Math.hypot(dx, dy, dz); dx /= l0; dy /= l0; dz /= l0;
-  const mu = dx * s.x + dy * s.y + dz * s.z, amV = airMassJS(dy), amS = airMassJS(s.y), g = 0.8;
+  const mu = dx * s.x + dy * s.y + dz * s.z, amV = airMassJS(dy), amS = airMassJS(s.y), g = 0.72;
   const pr = 0.0596831 * (1 + mu * mu), pm = 0.119366 * ((1 - g * g) * (1 + mu * mu)) / ((2 + g * g) * Math.pow(1 + g * g - 2 * g * mu, 1.5));
   const out = [0, 0, 0];
   for (let c = 0; c < 3; c++) {
     const ext = ATMO_BR[c] * 8000 + 4e-6 * 1200 * 1.1, tS = Math.exp(-(ext * 0.8 + ATMO_OZ[c]) * amS);
-    let L = 34 * (ATMO_BR[c] * pr + 4e-6 * pm) / (ATMO_BR[c] + 4e-6 * 1.1) * (1 - Math.exp(-ext * amV)) * tS;
+    let L = 34 * (ATMO_BR[c] * pr + 4e-6 * pm * 0.55) / (ATMO_BR[c] + 4e-6 * 1.1) * (1 - Math.exp(-ext * amV)) * tS;
     L += ATMO_BR[c] * 9000 * clamp((s.y + 0.1) * 4, 0, 1) * 0.25 * Math.exp(-ATMO_OZ[c] * 6);
     out[c] = Math.pow(1 - Math.exp(-Math.pow(L, 1.08)), 1 / 2.2);
   }
@@ -9306,9 +9684,9 @@ const AUDIO = (() => {
     const day = ENV.daylight;
     set(L.insects.gain, jungle * 0.006 * (0.4 + 0.6 * day) * (under ? 0 : 1), 1);
     const df = STREAM.fall ? Math.hypot(x - STREAM.fall.x, z - STREAM.fall.z) : 999;
-    set(L.falls.g.gain, clamp(9 / (df + 2), 0, 0.5) * (under ? 0.6 : 1));
+    set(L.falls.g.gain, clamp(9 / (df + 2), 0, 0.5) * (under ? 0.6 : 1) * (STREAM.fallFlow ?? 1), 0.5);
     const rq = riverQuery(x, z);
-    set(L.stream.g.gain, rq ? 0.1 * (1 - smoothstep(rq.W, rq.W + 28, rq.d)) * (0.4 + rq.speed / 3) * (under ? 0.5 : 1) : 0, 0.5);
+    set(L.stream.g.gain, rq ? 0.1 * (1 - smoothstep(rq.W, rq.W + 28, rq.d)) * (0.4 + rq.speed / 3) * (under ? 0.5 : 1) * (1 - 0.9 * riverStillAt(rq)) : 0, 0.5);
     if (E.g && P.mode !== 'boat') { set(E.g.gain, 0, 0.3); set(E.n.g.gain, 0, 0.3); }
     // birdsong in the forest by day, crickets by night
     birdT -= dt; cricketT -= dt;
@@ -10150,8 +10528,16 @@ function updateFallClimb(b, dt) {
   const C = b.climb, f = STREAM.fall;
   C.t += dt / C.dur;
   const e = Math.min(1, C.t), u = 1 - e;                     // u: 1 at the bottom of the falls, 0 at the lip
-  const out = 0.3 + f.fallLen * 0.55 * Math.pow(Math.max(u, 0), 0.6);
-  const yF = f.topY + 0.05 - (f.topY - f.botY + 0.2) * (u * u * 0.75 + u * 0.25);
+  // up the face of the falls, along the water's own path (riding on its outer surface)
+  let out, yF;
+  if (f.path && f.path.length > 2) {
+    const fp = f.path.filter(s => s.d >= f.edgeD - 0.3), q = clamp(u, 0, 1) * (fp.length - 1), i = Math.min(fp.length - 2, Math.floor(q)), k = q - i;
+    const A = fp[i], B = fp[i + 1];
+    out = lerp(A.d, B.d, k) + lerp(A.th, B.th, k) * 0.5 * lerp(A.nd || 0, B.nd || 0, k) + 0.6; yF = lerp(A.y, B.y, k) + 0.25;
+  } else {
+    out = 0.3 + f.fallLen * 0.55 * Math.pow(Math.max(u, 0), 0.6);
+    yF = f.topY + 0.05 - (f.topY - f.botY + 0.2) * (u * u * 0.75 + u * 0.25);
+  }
   let x = f.lipX + f.dirX * out, z = f.lipZ + f.dirZ * out, y = yF - REST_WL;
   // ease in from where you hit the falls, and out onto the river above the lip
   const k0 = smoothstep(0, 0.18, e);
@@ -10276,12 +10662,12 @@ function updateTubeWorld(dt, t) {
 }
 
 // ───────────────────── 28. Tools: a shovel for digging, a stick for writing ─────────────────────
-const TOOL = { cur: 'hands', aim: null, digT: 0, drawing: false, last: null, marker: null, vs: null, vm: {}, pen: false, scratch: 0 };
+const TOOL = { cur: 'hands', aim: null, digT: 0, drawing: false, last: null, marker: null, vs: null, vm: {}, pen: false, scratch: 0, fill: false };
 const TOOL_LIST = ['hands', 'shovel', 'bucket', 'stick', 'rod', 'surfboard', 'lantern'];
 const TOOL_NAMES = { hands: 'Hands', shovel: 'Shovel', bucket: 'Bucket', stick: 'Driftwood stick', rod: 'Fishing rod', surfboard: 'Surfboard', lantern: 'Storm lantern' };
 const BUCKET = { full: 0, anim: null, t: 0, dur: 0, src: null, poured: false, vol: 0.12 };
 const TOOL_HINTS = {
-  shovel: ['Shovel · click (or F) to dig · Q to switch', 'Shovel: aim at the sand and tap Dig'],
+  shovel: ['Shovel · click (or F) to dig · G or right-click: dig / place dirt · Q to switch', 'Shovel: tap Dig, or switch to Fill to pile up dirt'],
   bucket: ['Bucket · click (or F) to scoop up water, again to pour it out · Q to switch', 'Bucket: aim at water and tap Scoop, then Pour'],
   stick: ['Stick · hold the mouse button (or F) and look around to write · Q to switch', 'Stick: tap Draw, then look around to write in the sand'],
   rod: ['Fishing rod · hold the mouse button (or F) to wind up a cast · J for your fish journal', 'Fishing rod: hold Cast to wind up, let go to throw'],
@@ -10378,17 +10764,17 @@ function updateTools(dt) {
   TOOL.aim = ok ? aimGround(4.6, cur === 'bucket') : null;
   const a = TOOL.aim;
   let can = null;
-  if (a && cur !== 'bucket') can = a.floor ? 'wood' : canDig(a.x, a.z);
+  if (a && cur !== 'bucket') can = a.floor ? 'wood' : cur === 'shovel' && TOOL.fill ? canFill(a.x, a.z) : canDig(a.x, a.z);
   if (TOOL.marker) {
     TOOL.marker.visible = !!a;
-    if (a) { TOOL.marker.position.set(a.x, a.y + 0.02, a.z); TOOL.marker.material.color.setRGB(can ? 1 : 1, can ? 0.55 : 1, can ? 0.45 : 1); TOOL.marker.scale.setScalar(cur === 'shovel' ? 4.5 * DIG.radius / 0.62 : cur === 'bucket' ? 3 : 1); if (cur === 'bucket') TOOL.marker.material.color.setRGB(a.water ? 0.6 : 1, a.water ? 0.9 : 1, 1); }
+    if (a) { TOOL.marker.position.set(a.x, a.y + 0.02, a.z); TOOL.marker.material.color.setRGB(can ? 1 : 1, can ? 0.55 : 1, can ? 0.45 : 1); TOOL.marker.scale.setScalar(cur === 'shovel' ? 4.5 * DIG.radius / 0.62 * (TOOL.fill ? 1.6 : 1) : cur === 'bucket' ? 3 : 1); if (cur === 'shovel' && TOOL.fill && !can) TOOL.marker.material.color.setRGB(0.75, 0.55, 0.35); if (cur === 'bucket') TOOL.marker.material.color.setRGB(a.water ? 0.6 : 1, a.water ? 0.9 : 1, 1); }
   }
   const use = input.use || TOOL.pen;
   TOOL.digT = Math.max(0, TOOL.digT - dt);
   if (cur === 'shovel' && ok) {
     if ((input.use || input.usePressed) && TOOL.digT <= 0 && a) {
-      if (can) { showActivityHint(can === 'rock' ? 'Too rocky to dig here' : can === 'deep' ? 'Too deep to dig here' : can === 'wood' ? 'You can’t dig through wood' : 'Something is in the way', true, 1.6); TOOL.digT = 0.4; }
-      else { TOOL.digT = 0.62; TOOL.pending = { x: a.x, z: a.z, y: a.y, t: 0.26 }; }
+      if (can) { showActivityHint(can === 'rock' ? 'Too rocky to dig here' : can === 'deep' ? 'Too deep here' : can === 'steep' ? 'Too steep to pile dirt here' : can === 'wood' ? (TOOL.fill ? 'Not on the wood' : 'You can’t dig through wood') : 'Something is in the way', true, 1.6); TOOL.digT = 0.4; }
+      else { TOOL.digT = 0.62; TOOL.pending = { x: a.x, z: a.z, y: a.y, t: 0.26, fill: !!TOOL.fill }; }
     }
   }
   if (TOOL.pending) {
@@ -10396,11 +10782,25 @@ function updateTools(dt) {
     if (TOOL.pending.t <= 0) {
       const p = TOOL.pending; TOOL.pending = null;
       const rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw), fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw);
-      const removed = digAt(p.x, p.z, p.x + rx * 1.05 - fx * 0.15, p.z + rz * 1.05 - fz * 0.15);
-      if (typeof cutGrass === 'function') cutGrass(p.x, p.z, Math.max(0.9, DIG.radius * 1.4));
-      if (removed > 0) {
-        if (AUDIO.dig) AUDIO.dig();
-        for (let i = 0; i < 10 * Q.particles + 4; i++) FX.spawn(p.x + rand(-0.2, 0.2), p.y + 0.05, p.z + rand(-0.2, 0.2), rx * rand(0.6, 1.6) + rand(-0.3, 0.3), rand(1.2, 2.6), rz * rand(0.6, 1.6) + rand(-0.3, 0.3), rand(0.5, 0.9), rand(0.025, 0.05), 3, 9.8);
+      if (p.fill) {
+        // a shovelful of dirt thrown down where you're aiming
+        const added = fillAt(p.x, p.z);
+        if (typeof cutGrass === 'function') cutGrass(p.x, p.z, Math.max(0.9, DIG.radius * 1.6));
+        if (added > 0) {
+          if (AUDIO.dig) AUDIO.dig();
+          const w = waterAt(p.x, p.z), wet = w.level > groundHeight(p.x, p.z) + 0.05;
+          for (let i = 0; i < 14 * Q.particles + 5; i++) FX.spawn(p.x - fx * 0.6 + rand(-0.25, 0.25), p.y + 0.9, p.z - fz * 0.6 + rand(-0.25, 0.25), fx * rand(0.6, 1.8) + rand(-0.4, 0.4), rand(0.2, 1.4), fz * rand(0.6, 1.8) + rand(-0.4, 0.4), rand(0.5, 0.9), rand(0.03, 0.06), 3, 9.8);
+          if (wet && typeof splashAt === 'function') splashAt(p.x, w.level, p.z, 0.6);
+        }
+        surveyRiver(p.x, p.z);
+      } else {
+        const removed = digAt(p.x, p.z, p.x + rx * 1.05 - fx * 0.15, p.z + rz * 1.05 - fz * 0.15);
+        if (typeof cutGrass === 'function') cutGrass(p.x, p.z, Math.max(0.9, DIG.radius * 1.4));
+        if (removed > 0) {
+          if (AUDIO.dig) AUDIO.dig();
+          for (let i = 0; i < 10 * Q.particles + 4; i++) FX.spawn(p.x + rand(-0.2, 0.2), p.y + 0.05, p.z + rand(-0.2, 0.2), rx * rand(0.6, 1.6) + rand(-0.3, 0.3), rand(1.2, 2.6), rz * rand(0.6, 1.6) + rand(-0.3, 0.3), rand(0.5, 0.9), rand(0.025, 0.05), 3, 9.8);
+        }
+        surveyRiver(p.x, p.z);   // digging through a dam lets the river go again
       }
     }
   }
@@ -10540,8 +10940,16 @@ function updateToolButtons() {
   tb.textContent = TOOL.cur === 'hands' ? 'Tools' : TOOL_NAMES[TOOL.cur].split(' ').pop().replace(/^./, c => c.toUpperCase());
   if (PUMP.carry) { ub.hidden = !isTouch; ub.textContent = 'Place'; return; }
   ub.hidden = !(isTouch && TOOL.cur !== 'hands' && (P.mode === 'walk' || ((TOOL.cur === 'rod' || TOOL.cur === 'lantern') && P.mode !== 'tube') || (TOOL.cur === 'surfboard' && P.mode === 'swim')));
-  ub.textContent = TOOL.cur === 'lantern' ? (LIGHTS.lantern.where === 'boat' ? 'Take' : nearBoatForLantern() ? 'Hang' : LIGHTS.lantern.on ? 'Put out' : 'Light') : TOOL.cur === 'surfboard' ? 'Hop on' : TOOL.cur === 'rod' ? (FISHING.state === 'idle' ? 'Cast' : FISHING.state === 'fighting' || FISHING.state === 'bite' ? 'Reel' : FISHING.state === 'casting' ? 'Cast' : 'Reel in') : TOOL.cur === 'shovel' ? 'Dig' : TOOL.cur === 'bucket' ? (BUCKET.full > 0.05 ? 'Pour' : 'Scoop') : (TOOL.pen ? 'Lift' : 'Draw');
+  ub.textContent = TOOL.cur === 'lantern' ? (LIGHTS.lantern.where === 'boat' ? 'Take' : nearBoatForLantern() ? 'Hang' : LIGHTS.lantern.on ? 'Put out' : 'Light') : TOOL.cur === 'surfboard' ? 'Hop on' : TOOL.cur === 'rod' ? (FISHING.state === 'idle' ? 'Cast' : FISHING.state === 'fighting' || FISHING.state === 'bite' ? 'Reel' : FISHING.state === 'casting' ? 'Cast' : 'Reel in') : TOOL.cur === 'shovel' ? (TOOL.fill ? 'Fill' : 'Dig') : TOOL.cur === 'bucket' ? (BUCKET.full > 0.05 ? 'Pour' : 'Scoop') : (TOOL.pen ? 'Lift' : 'Draw');
   ub.classList.toggle('down', TOOL.pen);
+  const mb = $('t-mode'); if (mb) { mb.hidden = ub.hidden || TOOL.cur !== 'shovel'; mb.textContent = TOOL.fill ? 'Dig mode' : 'Fill mode'; }
+}
+// the shovel either digs or throws down dirt
+function toggleShovelMode() {
+  if (TOOL.cur !== 'shovel') return;
+  TOOL.fill = !TOOL.fill;
+  showActivityHint(TOOL.fill ? 'Placing dirt · pile it up to build banks or dam the river' : 'Digging', true, 2.2);
+  updateToolButtons();
 }
 
 // ───────────────────── 31. What a tsunami leaves behind ─────────────────────
@@ -10623,7 +11031,7 @@ function flushTerrain(all = false) {
     let nx = hl - hr, ny = 2 * c, nz = hdn - hu; const l = Math.hypot(nx, ny, nz);
     T.nrm[k * 3] = nx / l; T.nrm[k * 3 + 1] = ny / l; T.nrm[k * 3 + 2] = nz / l;
     pos[k * 3 + 1] = H[k];
-    hd[k * 2] = THREE.DataUtils.toHalfFloat(H[k]);
+    hd[k * 4] = THREE.DataUtils.toHalfFloat(H[k]);
   }
   const g = T.mesh.geometry;
   g.attributes.position.needsUpdate = g.attributes.normal.needsUpdate = g.attributes.aMask.needsUpdate = true;
@@ -10634,7 +11042,7 @@ function flushTerrain(all = false) {
     if (ch.x0 + SAND.TS < x0 || ch.x0 > x1 || ch.z0 + SAND.TS < z0 || ch.z0 > z1) continue;
     for (let jj = 0; jj < SN; jj++) for (let ii = 0; ii < SN; ii++) {
       const kk = jj * SN + ii, wx = ch.x0 + (ii + 0.5) * SAND.CS, wz = ch.z0 + (jj + 0.5) * SAND.CS;
-      ch.base[kk] = baseGround(wx, wz); if (!all) ch.G[kk] *= 0.2;
+      ch.base[kk] = baseGround(wx, wz); if (!all) { ch.G[kk] *= 0.2; if (ch.Dt) ch.Dt[kk] *= 0.2; }
       if (ch.sim) { const pi = (jj + 1) * SP + ii + 1; ch.sim.b[pi] = ch.base[kk] + ch.R[kk] + ch.G[kk]; }
     }
     let mb = 1e9; for (let q = 0; q < ch.base.length; q++) if (ch.base[q] < mb) mb = ch.base[q];
@@ -10932,6 +11340,7 @@ addEventListener('keydown', e => {
     if (e.code === 'KeyE' || e.code === 'Enter') input.interact = true;
     if (started && !panelOpen) {
       if (e.code === 'KeyQ') cycleTool();
+      if (e.code === 'KeyG') toggleShovelMode();
       if (e.code === 'Digit1') setTool('hands'); if (e.code === 'Digit2') setTool('shovel'); if (e.code === 'Digit3') setTool('bucket'); if (e.code === 'Digit4') setTool('stick');
       if (e.code === 'KeyF') input.usePressed = true;
       if (e.code === 'KeyJ') toggleJournal();
@@ -10978,6 +11387,7 @@ let mouseDown = false;
 canvas.addEventListener('mousedown', e => {
   if (!started || panelOpen) return; mouseDown = true;
   if (pointerLocked && e.button === 0) { input.useMouse = true; input.usePressed = true; }
+  if (pointerLocked && e.button === 2 && TOOL.cur === 'shovel') toggleShovelMode();
   if (!pointerLocked && !dragLook) lockPointer();
 });
 addEventListener('mouseup', () => { mouseDown = false; input.useMouse = false; });
@@ -11028,6 +11438,8 @@ holdBtn($('t-up'), 'up', () => { input.jump = true; if (started && (P.mode === '
 holdBtn($('t-down'), 'down');
 $('t-act').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); input.interact = true; });
 $('t-tool').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); cycleTool(); });
+$('t-mode').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); toggleShovelMode(); });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
 {
   const ub = $('t-use');
   ub.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); if (TOOL.cur === 'stick') { TOOL.pen = !TOOL.pen; updateToolButtons(); } else { touch.use = true; input.usePressed = true; ub.classList.add('down'); } });
@@ -11058,13 +11470,40 @@ function supportHeight(x, z, feet) {
   if (db) { const top = deckTopAt(db, x, z, feet); if (top <= feet + 0.5 && top > g) g = top; }
   return g;
 }
-function waterAt(x, z) {
+// inside the falls themselves: a column of fast water from the pool up to the lip. You can swim up it
+// against the current (hold forward and look up, or hold jump), or let it carry you down.
+function fallsWaterAt(x, z, y) {
+  const F = STREAM.fall; if (!F || !F.path || (STREAM.fallFlow ?? 1) < 0.3) return null;
+  const dx = x - F.lipX, dz = z - F.lipZ, d = dx * F.dirX + dz * F.dirZ;
+  if (d < F.edgeD - 0.6 || d > F.fallLen + 2.5) return null;
+  const ts = -dx * F.dirZ + dz * F.dirX, t = Math.abs(ts);
+  let top = -1e9, bot = 1e9, near = null, nd = 1e9;
+  for (const s of F.path) {
+    if (s.d < F.edgeD - 0.4 || t > s.hw + 0.2) continue;
+    if (Math.abs(d - s.d) < s.th * 0.5 + 0.25) { top = Math.max(top, s.y + s.th * 0.5); bot = Math.min(bot, s.y - s.th * 0.5); }
+    const e = Math.abs(s.y - y); if (e < nd) { nd = e; near = s; }
+  }
+  if (top < -1e8 || y < bot - 1.8 || y > top + 1.2) return null;
+  const k = STREAM.fallFlow ?? 1;
+  // the falling water carries you with it: down, and in towards the middle of the stream
+  const pd = near ? clamp((near.d - d) * 1.6, -1.5, 1.5) : 0, pt = clamp(-ts * 0.5, -1, 1);
+  return { level: Math.min(top, F.topY + 0.25), kind: 'fall', fx: (F.dirX * pd - F.dirZ * pt) * k, fz: (F.dirZ * pd + F.dirX * pt) * k, fy: -3.6 * k };
+}
+function waterAt(x, z, y) {
+  if (y !== undefined) { const fw = fallsWaterAt(x, z, y); if (fw) return fw; }
   { const pw = poolWaterAt(x, z); if (pw) return pw; }
   if (CABIN.group && !CABIN.destroyed) { const l = worldToCabin(x, z); if (Math.abs(l.x) < CW + 0.05 && l.z > -CPORCH - 0.05 && l.z < CD + 0.05) return { level: Math.min(CABIN.floor - 0.4, oceanHeight(x, z, U.uTime.value)), kind: 'sea', fx: 0, fz: 0 }; }
   if (Math.hypot(x - POOL.x, z - POOL.z) < POOL.r + 0.6) return { level: POOL.level, kind: 'fresh', fx: 0, fz: 0 };
   if (Math.hypot(x - SPRING.x, z - SPRING.z) < SPRING.r + 0.3) return { level: SPRING.level, kind: 'fresh', fx: 0, fz: 0 };
   const q = riverQuery(x, z);
-  if (q && q.d < q.W + 0.6 && q.S > 0.05) { const k = 1 - smoothstep(q.W * 0.6, q.W + 0.6, q.d) * 0.7; return { level: q.S, kind: 'river', fx: q.tx * q.speed * k, fz: q.tz * q.speed * k, q }; }
+  if (q && q.d < q.W + 0.6 && (q.S > 0.05 || q.sUp > -16)) {
+    // near the mouth the sea's swell runs up the river too (damped the same way the water is drawn);
+    // a dam (see updateDams) drains it below and backs it up above
+    const k = (1 - smoothstep(q.W * 0.6, q.W + 0.6, q.d) * 0.7) * smoothstep(-12, 25, q.sUp) * (1 - riverStillAt(q));
+    const S = riverLevelAt(q);
+    const level = q.sUp < 60 ? S + oceanHeight(x, z, U.uTime.value) : S;
+    return { level, kind: q.sUp < 0 ? 'sea' : 'river', fx: q.tx * q.speed * k, fz: q.tz * q.speed * k, q };
+  }
   const sw = SAND.count ? sandWaterAt(x, z) : null;
   if (sw) return { level: sw.level, kind: 'fresh', fx: sw.vx * 0.6, fz: sw.vz * 0.6 };
   const tf = TSU.on ? tsunamiFlow(x, z) : 0;
@@ -11135,7 +11574,7 @@ function updatePlayer(dt) {
   let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
   const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
   if (P.mode === 'walk') deckCarry(); else DECK.boat = null;
-  const w = waterAt(P.pos.x, P.pos.z); P.water = w;
+  const w = waterAt(P.pos.x, P.pos.z, P.pos.y - 0.6); P.water = w;
   if (P.mode === 'walk') walkStep(dt, w, mx, my, ml, fx, fz, rx, rz); else swimStep(dt, w, mx, my, ml, fx, fz, rx, rz);
   deckTrack();
   checkWaveHit(dt);
@@ -11217,7 +11656,7 @@ function swimStep(dt, w, mx, my, ml, fx, fz, rx, rz) {
     wx = (fx * lh * my + rx * mx) * speed * 1.05; wz = (fz * lh * my + rz * mx) * speed * 1.05; wy = ly * my * speed * 1.05;
     if (input.up) wy += 2.4; if (input.down) wy -= 2.4;
     if (!input.up && !input.down && ml < 0.05) wy += 0.65;
-    P.vel.y = damp(P.vel.y, wy, 3.2, dt);
+    P.vel.y = damp(P.vel.y, wy + (w.fy || 0), 3.2, dt);
   }
   P.vel.x = damp(P.vel.x, wx + (w.fx || 0) * 0.92, 3.2, dt); P.vel.z = damp(P.vel.z, wz + (w.fz || 0) * 0.92, 3.2, dt);
   let nx = P.pos.x + P.vel.x * dt, nz = P.pos.z + P.vel.z * dt;
@@ -11349,7 +11788,7 @@ function updateCamera(dt) {
 // and only cross when you really dive or come up.
 function keepEyeOffSurface() {
   if (P.mode === 'boat' || P.mode === 'seat' || P.mode === 'plane' || P.mode === 'sub' || P.mode === 'surf' || !started) { P.camSide = 0; return; }
-  const lv = waterAt(camera.position.x, camera.position.z).level, y = camera.position.y, band = 0.16;
+  const lv = waterAt(camera.position.x, camera.position.z, camera.position.y).level, y = camera.position.y, band = 0.16;
   if (y > lv + 0.6 || y < lv - 0.8) { P.camSide = y > lv ? 1 : -1; return; }
   if (!P.camSide) P.camSide = y >= lv ? 1 : -1;
   if (P.camSide > 0) { if (y < lv - 0.22) P.camSide = -1; }
@@ -11415,6 +11854,7 @@ function syncPanel() {
   $('s-tsu').value = settings.tsunamiSize;
   set('s-tsuspeed', settings.tsunamiSpeed ?? 1, (settings.tsunamiSpeed ?? 1).toFixed(1) + '×');
   set('s-shovel', settings.shovelPower, Math.round(settings.shovelPower * 100) + '%');
+  { const f = settings.pumpFlow ?? 1; set('s-pump', f, Math.round(f * 100) + '% · ' + Math.round(f * 320) + ' L/s'); }
 }
 function wirePanel() {
   $('gear').addEventListener('click', () => togglePanel(true));
@@ -11459,6 +11899,7 @@ function wirePanel() {
   bind('s-waves', 'waveSize', t => +t.value);
   bind('s-tsu', 'tsunamiSize', t => t.value);
   bind('s-shovel', 'shovelPower', t => +t.value, applyShovelPower);
+  bind('s-pump', 'pumpFlow', t => +t.value);
   $('panel').addEventListener('pointerdown', e => e.stopPropagation());
 }
 function applyQuality() {
@@ -11528,12 +11969,13 @@ function frame(now) {
   if (started) { updatePlayer(dt); updateCamera(dt); updatePrompt(); updateMultiplayer(dt); }
   else introCamera((now - clockStart) / 1000);
   // what the camera is in
-  const cw = waterAt(camera.position.x, camera.position.z);
+  const cw = waterAt(camera.position.x, camera.position.z, camera.position.y);
   const under = camera.position.y < cw.level - 0.03 || (P.mode === 'sub' && camera.position.y < cw.level + 0.3);
   P.eyeUnder = under;
   U.uUnderwater.value = under ? 1 : 0;
   const camDepth = Math.max(0, cw.level - camera.position.y);
   if (cw.kind === 'fresh') { U.uWaterFog.value.set(0.10, 0.30, 0.26).multiplyScalar(0.25 + 0.75 * ENV.daylight); U.uWaterFogDensity.value = 0.075; }
+  else if (cw.kind === 'fall') { U.uWaterFog.value.set(0.52, 0.66, 0.66).multiplyScalar(0.3 + 0.7 * ENV.daylight); U.uWaterFogDensity.value = 0.32; }   // churning white water all round you
   else { const b = ENV.uwBase || [0.06, 0.45, 0.56]; const k = Math.exp(-camDepth * 0.03) * (1 - WX.cur.dark * 0.4); U.uWaterFog.value.set(b[0] * k, b[1] * k, b[2] * k); U.uWaterFogDensity.value = 0.026 + WX.cur.dark * 0.02 + WX.cur.rain * 0.01; }
   if (under && SUB.sonar) { U.uWaterFog.value.set(0.0, 0.035, 0.03); U.uWaterFogDensity.value = 0.0035; }
   else if (under && P.mode === 'sub' && SUB.lights) U.uWaterFogDensity.value = Math.max(0.02, U.uWaterFogDensity.value * 0.8);
@@ -11545,7 +11987,7 @@ function frame(now) {
   slowTick -= dt;
   if (slowTick <= 0) { slowTick = 0.25; for (const f of FIELDS) f.update(camera.position); if (started) checkDiscoveries(); }
   if (started) updateTools(dt);
-  updateSand(dt, sim);
+  updateSand(dt, sim); updateDams(dt);
   updateBoats(sim, dt); if (P.mode !== 'plane') updatePlane(dt, false); if (P.mode !== 'sub') updateSub(dt); updateTubeWorld(dt, sim); updateWake(dt, sim); updateCabin(dt, sim); updateLights(dt, sim); updateFar(dt); updateTub(dt);
   updateSeaLife(dt, sim); updateBigAnimals(dt, sim); updateWildlife(dt, sim); FX.update(dt, sim); FX.updateLens(dt);
   if (P.wasUnder && !under && started) FX.lens(18 + (rng() * 12 | 0));
@@ -11640,7 +12082,7 @@ if (hot && hot.ready) hot.ready(startBoot); else startBoot(hot && hot.data);
 // small handle for poking at the island from the browser console
 window.__bp = { updateSeaLife, P, ENV, WX, settings, begin, camera, renderer, scene, spawnPlayer, groundHeight, PLACES, SPAWN, applyQuality, POOL, STREAM, FIELDS, INTERACT, input, keys, sit, U, updatePlayer, readKeys, waterAt, LAYOUT, SEA, PLATFORMS, updatePrompt,
   applyWaterStyle, updateCamera, FX, WFX, SPRAY, OLOD, updateOceanLOD, surfState, Q, LIGHTS, DECK, applyQuality, ISLANDS, FAR, farField, farHeight, TUB, PUMP, ABYSS, subStand, subSit, subWalk, poolClimbOut, nearestInteract, updatePlayer, input, keys, updatePump, updateSub, SUB_SEAT, cycleSubView, updateSubBoard, subCamera, renderSubCam, POOLB, TUBB, openTubPanel, closeTubPanel, pickPump, pickHose, placeCarried, reelHose, updateTub, poolWaterAt, cutGrass, LAWN, useLantern, takeLantern, toggleHeadlights, standOnDeck, deckTopAt, deckClimbFrom, updateLights, splashAt, rippleDrop, supportHeight, applyShovelPower, updateBoats, boatPhysics, updateTsunami, updateCabin, BUCKET, wetArea, SURF, startSurf, updateSurf, endSurf, surfAtJS, TREEFALL, breakTree, allTrees, blastTrees, updateTreefall, unhideTrees, VEG, PLANE, SUB, TRENCH, boardPlane, exitPlane, updatePlane, resetPlane, planeExplode, boardSub, exitSub, updateSub, setSonar, subDepth, implode, ANIMALS, updateBigAnimals, showHeldFish, FISHING, FISH, rollFish, hookFish, landFish, habitatAt, toggleJournal, updateFishing, WXFX, strike, updateWeatherFX, CABIN, WALLS, TSU, DESTROY, destroyCabin, repairIsland, flushTerrain, tsunamiErode, updateDestruction, sendTsunami, calmSea, insideCabin, cabinToWorld, worldToCabin, startSleep, cabinAction, nearestInteract, oceanHeight, tsunamiJS, pourAt, scoopAt, returnBoat,
-  SAND, digAt, carveStroke, stampFoot, updateSand, riverQuery, BOATS, TUBE, boardBoat, exitBoat, startTube, setTool, TOOL, updateTools, aimGround, updateTubeWorld, sandWaterAt, SPRING };
+  SAND, digAt, carveStroke, stampFoot, updateSand, riverQuery, BOATS, TUBE, boardBoat, exitBoat, startTube, setTool, TOOL, updateTools, aimGround, updateTubeWorld, sandWaterAt, SPRING, fillAt, pourAt, surveyRiver, DAM, updateDams, fallsWaterAt, swimStep, updateTools, riverLevelAt, riverCalmJS, oceanHeight, toggleShovelMode, T };
 
 // ───────────────────── 36. Multiplayer ─────────────────────
 // Everyone who has the island open at the same time is on it together, automatically: you see
