@@ -4553,8 +4553,10 @@ function surveyRiver(x, z) {
   let best = null;
   for (let j = Math.max(0, q.i - 4); j <= Math.min(pts.length - 1, q.i + 5); j++) {
     const p = pts[j]; if (p.kind !== q.kind || p.S === undefined || p.tx === undefined) continue;
+    // the cross-section that stands highest above its own water level (on a steep stream the bed
+    // upstream is higher than any dam below it, so compare each with its own water)
     const m = crossMin(p, p.W);
-    if (!best || m > best.crest) best = { j, crest: m, S: p.S };
+    if (!best || m - p.S > best.crest - best.S) best = { j, crest: m, S: p.S };
   }
   if (!best) return;
   const blocked = best.crest > best.S + 0.02 && best.S > 0.05;
@@ -11480,14 +11482,14 @@ function fallsWaterAt(x, z, y) {
   let top = -1e9, bot = 1e9, near = null, nd = 1e9;
   for (const s of F.path) {
     if (s.d < F.edgeD - 0.4 || t > s.hw + 0.2) continue;
-    if (Math.abs(d - s.d) < s.th * 0.5 + 0.25) { top = Math.max(top, s.y + s.th * 0.5); bot = Math.min(bot, s.y - s.th * 0.5); }
+    if (Math.abs(d - s.d) < s.th * 0.5 + 0.9) { top = Math.max(top, s.y + s.th * 0.5); bot = Math.min(bot, s.y - s.th * 0.5); }
     const e = Math.abs(s.y - y); if (e < nd) { nd = e; near = s; }
   }
   if (top < -1e8 || y < bot - 1.8 || y > top + 1.2) return null;
   const k = STREAM.fallFlow ?? 1;
   // the falling water carries you with it: down, and in towards the middle of the stream
-  const pd = near ? clamp((near.d - d) * 1.6, -1.5, 1.5) : 0, pt = clamp(-ts * 0.5, -1, 1);
-  return { level: Math.min(top, F.topY + 0.25), kind: 'fall', fx: (F.dirX * pd - F.dirZ * pt) * k, fz: (F.dirZ * pd + F.dirX * pt) * k, fy: -3.6 * k };
+  const pd = near ? clamp((near.d - d) * 2.6, -2.6, 2.6) : 0, pt = clamp(-ts * 0.5, -1, 1);
+  return { level: Math.min(top, F.topY + 0.25), kind: 'fall', fx: (F.dirX * pd - F.dirZ * pt) * k, fz: (F.dirZ * pd + F.dirX * pt) * k, fy: -2.7 * k };
 }
 function waterAt(x, z, y) {
   if (y !== undefined) { const fw = fallsWaterAt(x, z, y); if (fw) return fw; }
@@ -11658,9 +11660,13 @@ function swimStep(dt, w, mx, my, ml, fx, fz, rx, rz) {
     if (!input.up && !input.down && ml < 0.05) wy += 0.65;
     P.vel.y = damp(P.vel.y, wy + (w.fy || 0), 3.2, dt);
   }
-  P.vel.x = damp(P.vel.x, wx + (w.fx || 0) * 0.92, 3.2, dt); P.vel.z = damp(P.vel.z, wz + (w.fz || 0) * 0.92, 3.2, dt);
+  const hk = w.kind === 'fall' ? 0.45 : 1;       // in the falls you mostly fight your way up, not along
+  P.vel.x = damp(P.vel.x, wx * hk + (w.fx || 0) * 0.92, 3.2, dt); P.vel.z = damp(P.vel.z, wz * hk + (w.fz || 0) * 0.92, 3.2, dt);
   let nx = P.pos.x + P.vel.x * dt, nz = P.pos.z + P.vel.z * dt;
   [nx, nz] = collide(nx, nz, P.pos.y - 0.8);
+  // a rock wall under water: stop at it instead of popping up onto whatever is on top of it
+  { const g0 = groundHeight(P.pos.x, P.pos.z), g1 = groundHeight(nx, nz);
+    if (g1 > P.pos.y - 0.45 && g1 > g0 + 0.8 && !poolWhere(nx, nz)) { nx = P.pos.x; nz = P.pos.z; P.vel.x *= 0.3; P.vel.z *= 0.3; } }
   P.pos.x = nx; P.pos.z = nz;
   P.pos.y += P.vel.y * dt;
   if (P.pos.y > surf + 0.22) { P.pos.y = surf + 0.22; P.vel.y = Math.min(P.vel.y, 0); }
