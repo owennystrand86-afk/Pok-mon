@@ -50,6 +50,7 @@ It needs WebGL 2 and an internet connection the first time (for three.js and the
 | Fish | With the rod: hold the mouse button (or `F`) to wind up a cast and let go to throw; click when the bobber dips; hold to reel and ease off when the line goes red | Cast, then Reel |
 | Fish journal | `J` | Settings, Fish journal |
 | Dig / place dirt / scoop / write | Click (or hold `F`) to dig with the shovel; `G` or right-click switches it to placing dirt and back; click to fill the bucket from the sea, the river or a pool you dug, and again to pour it out; hold and look around to write with the stick | Dig or Fill (Fill mode / Dig mode switches), Scoop / Pour, or Draw to start and stop writing |
+| Build | `B` (or click the Build box at the top of the screen) opens the build box: pick timber, steel or electrics to place, or a tool to hold. Placing: click to put it down (again and again), `R` rotate, `T` tip it on its side, `X` or right-click when you're done. Tools: click (or hold `F`) to use them, `X` puts them away. `E` on a power box, switch, button or radio uses it | Build box at the top; Place / Weld / Screw / Connect / Cut button; Rotate, Tilt, Delete and ✕ in the box |
 | Settings | `Esc`, `M` or the button in the top-right corner | Button in the top-right corner |
 
 If the browser does not allow the mouse to be captured (some embedded viewers), hold the mouse
@@ -190,6 +191,33 @@ Settings are remembered in your browser.
   water. A bucket of water also puts out the fire. Wherever you dig or water runs, the ground
   blends into the beach around it with no seams or square patches; holes and wet patches have
   soft, ragged edges and water running over sand carves smooth grooves.
+- A build box at the top of the screen, on computers and phones. It spawns timber (planks, short boards,
+  beams, long beams, posts, plywood sheets, crates), steel (plates, small plates, square tube,
+  I-beams, pipe, steel posts, blocks) and electrics, and it's the only place to take the build tools
+  from (and put them back): a grab glove, a MIG welder, an angle grinder, a screwdriver, a wire spool,
+  wire cutters and a multimeter. Every item has a 3D picture.
+  - Placing: a see-through copy follows where you look, snaps flush against the face of whatever
+    you point at (lined up with it, flush with its edges), or sits on the ground square to you. Rotate
+    it, tip it on its side, and place as many as you like. It turns red where it won't fit.
+  - Fastening: the screwdriver drives a screw where wood meets wood, or through steel into wood
+    (click a screw to take it out again); steel to steel is too hard to screw, so you weld it: hold the
+    welder on the seam for a second, with a blinding blue arc, sparks and smoke, and the bead glows
+    orange as it cools. Wood just burns under the welder and electrics would fry. The grinder cuts
+    welds off again in a shower of sparks.
+  - Things stand up or fall down: anything on the ground, or resting on something that is, stays;
+    anything fastened to something standing stays with it (a beam screwed across two posts, an arm
+    screwed to the side of it); anything left hanging in mid-air gets 12 seconds for you to fasten it,
+    then drops with a thud. Fastened pieces move and fall together. You can walk and climb on what
+    you build. Grab picks up a whole fastened piece to move, rotate or delete it.
+  - Electrics: power boxes (switch them on and off with E), solar panels (power by day, weaker
+    with clouds or too much on them), switches, push buttons, light bulbs, floodlights with a beam
+    you can see at night, fans that blow you about, motors, a spinning siren and a radio with four
+    stations. Run wires with the spool from one device to the next (they hang and droop between
+    them); the hot tub's power box on the deck can feed your wiring too. Too much on one power box
+    trips its breaker. The wire cutters snip a wire (sparks if it was live), and the multimeter reads
+    the voltage on its screen.
+  - What you build is kept on this device and comes back next time (Clear everything in the box
+    removes it). Other players don't see it.
 - The shovel also places dirt, as much as you like: dark, crumbly earth that stands steeper than
   sand. Pile it up into banks, fill holes, or dam the river: build it across the channel higher
   than the water and the river stops there. Below the dam it drains away to puddles (dam it above
@@ -213,14 +241,17 @@ The whole game is `index.html`. The script is organised in numbered sections:
 5. Procedural textures
 6. Island terrain: coastline field, beaches, mountains, waterfall cliff, stream, pool, trail, tide pools
 7. Sky dome with clouds, sun, moon, stars and rainbow
-8. Ocean, pools, river and waterfall shaders (the waterfall is one sheet from the river surface over
-   the lip into free fall); 8c. glow on bright light; 8b. water effects: refraction (the frame is drawn
+8. Ocean, pools, river and waterfall shaders (the waterfall is a thick body of water that follows a
+   path simulated down the actual rock face); 8c. glow on bright light; 8b. water effects: refraction (the frame is drawn
    without water, copied, and the water bends it), a GPU ripple simulation around the camera, a
    foam texture, and spray droplets drawn as streaks
 9–13. Vegetation: chunked instancing, wind animation, canvas-drawn leaf textures; 13b. a lawn of
     individual grass blades placed around the camera in the shader
 14–17. Places, props (dock, inner tube, footbridge) and rocks; 16b. the motorboat and its hull
-    physics; 16c. the biplane and its flight model; 16d. the submarine, the trench, sonar; 16e. surfing
+    physics; 16c. the biplane and its flight model; 16d. the submarine, the trench, sonar; 16e. surfing;
+    16f. building: parts as boxes turned about the vertical (ray picking, snapping, walkable tops and
+    walls), fastenings grouped into rigid pieces with a support check and falling, a wiring graph
+    searched from each power source each few frames, a small pool of real lights for the nearest lamps
 18–19. Coral, seagrass and fish; 19b. sharks, dolphins, turtles, rays and a whale shark
 20. Time of day, lighting and weather; 20b. wind streaks, blown leaves and sand, sea spray, rain
     splashes, roof drips and branching lightning
