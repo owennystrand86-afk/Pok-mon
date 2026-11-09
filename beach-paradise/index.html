@@ -4011,12 +4011,17 @@ function erodePass(c, dt) {
       const di = q === 0 ? 1 : q === 1 ? N : q === 2 ? -1 : -N, dp = q === 0 ? 1 : q === 1 ? P : q === 2 ? -1 : -P;
       const cj = ci + di, pj = pi + dp;
       if (q >= 2 && c.touched[cj]) continue; // that pair is handled from the other side
-      const dirtK = c.Dt ? Math.min(1, (c.Dt[ci] + c.Dt[cj]) * 4) : 0;    // packed dirt stands steeper than loose sand
-      const d = B[pi] - B[pj], lim = (w > 0.01 || Wt[pj] > 0.01 ? 0.5 + dirtK * 0.25 : 0.72 + dirtK * 0.3) * L;
+      const dirtK = c.Dt ? Math.min(1, (c.Dt[ci] + c.Dt[cj]) * 4) : 0;    // packed dirt stands much steeper than loose sand
+      const d = B[pi] - B[pj], lim = (w > 0.01 || Wt[pj] > 0.01 ? 0.5 + dirtK * 0.75 : 0.72 + dirtK * 0.9) * L;
       // running water also evens out the sand it carries, so channels come out as smooth grooves, not steps
       const soft = w > 0.01 && Wt[pj] > 0.01 && c.src[ci] !== 1 && c.src[cj] !== 1 && c.sandy[ci] && c.sandy[cj] ? Math.abs(d) * Math.min(0.08, dt * 1.2) : 0;
       if (Math.abs(d) > lim || soft > 0.0005) {
-        const m = Math.max(0, Math.abs(d) - lim) * 0.22 + soft;
+        // only loose material moves: sand, or dirt and sand piled on top of rock or soil (never the
+        // natural ground itself, so a steep stream bed doesn't slide away)
+        const donor = d > 0 ? ci : cj;
+        const loose = c.sandy[donor] ? 1e9 : Math.max(0, c.G[donor]);
+        const m = Math.min(loose, Math.max(0, Math.abs(d) - lim) * 0.22 + soft);
+        if (m <= 0) continue;
         if (d > 0) { c.G[ci] -= m; c.G[cj] += m; B[pi] -= m; B[pj] += m; } else { c.G[ci] += m; c.G[cj] -= m; B[pi] += m; B[pj] -= m; }
         if (c.Dt) { const from = d > 0 ? ci : cj, to = d > 0 ? cj : ci, mv = Math.min(c.Dt[from], m); c.Dt[from] -= mv; c.Dt[to] += mv; }
         touchCell(c, cj); changed = true;
@@ -4528,7 +4533,6 @@ function fillAt(x, z) {
       const pi = ((k / SN | 0) + 1) * SP + (k % SN) + 1;
       c.sim.b[pi] = c.base[k] + c.R[k] + c.G[k];
       c.sim.w[pi] = Math.max(0, c.sim.w[pi] - add);      // the dirt pushes the water aside
-      if (c.sandy) c.sandy[k] = 1;
     }
   carveRegion(x - r, z - r, x + r, z + r, (px, pz, cur) => (Math.hypot(px - x, pz - z) < r * 0.8 ? 0 : cur));
   return added;
@@ -11478,6 +11482,7 @@ function fallsWaterAt(x, z, y) {
   const F = STREAM.fall; if (!F || !F.path || (STREAM.fallFlow ?? 1) < 0.3) return null;
   const dx = x - F.lipX, dz = z - F.lipZ, d = dx * F.dirX + dz * F.dirZ;
   if (d < F.edgeD - 0.6 || d > F.fallLen + 2.5) return null;
+  if (y > F.topY - 0.5 && d < F.edgeD + 0.9) return null;   // up at the brink: that's the river
   const ts = -dx * F.dirZ + dz * F.dirX, t = Math.abs(ts);
   let top = -1e9, bot = 1e9, near = null, nd = 1e9;
   for (const s of F.path) {
