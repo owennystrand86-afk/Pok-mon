@@ -39,7 +39,9 @@ It needs WebGL 2 and an internet connection the first time (for three.js and the
 | Kettle, fire | `E` at the stove puts the kettle on; `E` at the fireplace lights it or lets it burn down | The button that appears |
 | Door and windows | Look at the cabin door or a window and press `E` to open or close it | The button that appears |
 | Fly the biplane | `E` beside it on the beach, then `W`/`S` throttle, mouse or arrow keys for the stick (pull back to climb), `A`/`D` roll; land gently on the wheels and press `E` to climb out | Joystick for the stick (push forward to dive), ▲▼ throttle, drag to look around |
-| Drive the submarine | `E` beside it at the dock, then `W`/`S` drive, `A`/`D` turn, `Space` rise, `C` dive, `X` sonar, `L` lights, `E` to open the hatch | Joystick, ▲▼ to rise and dive, Sonar button |
+| Drive the submarine | Walk the floating walkway from the end of the dock and press `E` by the sub: you climb up the sail and down the hatch into the control room. `W`/`S` drive, `A`/`D` turn, `Space` rise, `C` dive, `Shift` faster, `V` switches between the control room, the bow camera and a view from outside, `X` sonar, `R` radar, `L` lights, `E` to open the hatch | Joystick, ▲▼ to rise and dive, Sonar button |
+| Hot tub and pool | Out of the cabin's back door onto the deck. `E` at the power box opens its controls: power, bubbles, jets (low or high), the heater (26–40 °C), draining and filling the tub and the pool, and the underwater lights. `E` by the tub to sit in it | The button that appears |
+| Drain pump | `E` on the yellow pump by the cabin's back door to pick it up; click (or `F`) to set it down, best in some water. You're then holding the hose: walk it where you want the water to go and click to set it down. While the pump is under water it pumps. `E` on the hose's end to move it, on the pump to move that, or "Reel the hose in" | Pick up, then Place |
 | Drive the motorboat | `E` beside it, then `W`/`S` throttle, `A`/`D` steer, `Shift` full speed, `L` headlights, `E` to stand up on the deck (or step onto the dock). Walk around the deck, jump over the side to swim, `E` near the helm to drive again; from the water, swim up to the boat and press `Space` to climb aboard. Drive up the river from the sea and straight at the bottom of the waterfall to climb it | Joystick, Lights button, Get out button |
 | Ride the river on the inner tube | `E` beside the tube at the waterfall pool, `A`/`D` steer, `W` paddle | Joystick, Get off button |
 | Tools | `Q` switches between hands, shovel, bucket, stick, fishing rod, surfboard and storm lantern (or `1`–`7`); in the boat, between hands, the rod and the lantern | Tools button |
@@ -119,6 +121,23 @@ Settings are remembered in your browser.
 - A storm lantern to carry at night: its flame flickers and lights the sand, the trees and the
   water around you, glinting on the ripples. Hang it from the boat's T-top and it swings with the
   boat as it rolls. Other players see your lantern and your headlights too.
+- A tall volcanic mountain with knife-edge ridges and gullies, clouds caught on its summit, and the
+  waterfall pouring 55 m down its cliff into the jungle pool; the river below runs through a valley
+  in pools and short cascades, with spray and mist where each one drops.
+- A wider world: six more islands kilometres out to sail, fly or dive to: Volcano Isle (black sand
+  and a smoking crater), Lighthouse Rock (its beam sweeps the sea at night), the Coral Atoll round
+  its turquoise lagoon, Shipwreck Cay with a wreck on its reef, the Twin Palms and Mesa Island
+  behind its cliffs. Beyond the island's shelf the sea floor falls away hundreds of metres.
+- The cabin: a fieldstone foundation, a wide staircase with handrails and lanterns, a green metal
+  roof, flower boxes, a woodpile and stepping stones down to the beach; inside, a bigger fire whose
+  flickering light fills the room. Indoors, the outside sounds muffled, less so the nearer you are
+  to an open door or window.
+- A back deck with a log-edged swimming pool and a cedar hot tub that spills into it: bubbles,
+  jets, steam on a cool night, underwater lights, and a power box to run it all (other players
+  see your settings). A drain pump on a 30 m hose that lies on the ground, drapes over edges and
+  wraps round walls and trees; drop the pump in the pool and lay the hose to the sea to drain it,
+  or the other way round to fill it, or onto the sand where the water soaks in and runs.
+- Digging with the shovel cuts the grass, which flies off in clippings.
 - Tsunamis on request: far out the sea rises, the water drains back off the beach and exposes the
   seabed, then the swell steepens as it reaches the shallows into a wall of water with a
   tumbling white roller on its crest that breaks over the sand, knocks you over, sweeps you
@@ -139,11 +158,17 @@ Settings are remembered in your browser.
 - An open-cockpit biplane on the beach. Take off along the sand, loop around the island, and land
   it gently. Touch the sea and it sinks to the bottom (bring it back from the settings); fly it into
   the ground and it explodes in a fireball and burning wreckage.
-- A little research submarine at the dock with a glass bubble nose. Out past the reef the sea floor
-  drops into a trench nearly half a kilometre deep, pitch black apart from your searchlights and
-  glowing plankton. The pressure gauge climbs past 40 atmospheres; the hull is rated to 400 m and
-  gives way past 450, and opening the hatch deeper than 40 m crushes you. Sonar shows the trench
-  walls and any animals around you as glowing contours.
+- A 36-metre black submarine at the end of a floating walkway: anechoic tiles over the hull, a sail
+  with diving planes, cruciform rudders and a seven-bladed bronze propeller. You climb up the sail
+  and down the ladder into the control room: a screen showing the bow camera's picture, a sonar
+  screen that maps the sea floor ahead and anything swimming there, a radar screen of the land,
+  boats, sharks and dolphins around you, a depth readout and a brass pressure gauge. Drive it from
+  the control room, through the bow camera, or watch it from outside. It dives fast; every 10 m
+  down is another atmosphere on the gauge, the hull is rated to 1,200 m and gives way past 1,450,
+  and the Abyss, a sinkhole south-west of the island, goes down over 1,600 m.
+- Out past the reef the sea floor drops into a trench nearly half a kilometre deep, pitch black
+  apart from your searchlights and glowing plankton. Opening the hatch deeper than 40 m crushes you.
+  With sonar on, the bow camera shows the trench walls and any animals as glowing contours.
 - Fishing with 36 kinds of catch, from sardines and bass to tarpon, marlin, bluefin tuna,
   hammerheads, tiger sharks and great whites (and the odd old boot). What bites depends on where
   the bobber lands (shallows, open sea, the reef, the river or the falls pool), the time of day and
