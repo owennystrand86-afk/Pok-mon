@@ -178,6 +178,7 @@ body.touch #hud{top:calc(env(safe-area-inset-top,0px) + 60px);transform:scale(.8
 .tub-heat{display:flex;align-items:center;gap:10px}.tub-heat b{min-width:86px;text-align:center;color:var(--foam)}
 .tub-two{display:flex;gap:8px}.tub-val{color:var(--foam);font-weight:500}
 #tub-panel.off .tub-grid > :not(:first-child):not(:nth-child(2)){opacity:.45}
+#sub-view{position:fixed;z-index:12;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top,0px) + 14px);border:0;border-radius:999px;padding:11px 20px;font:600 14px/1 inherit;color:var(--foam);cursor:pointer}
 #subcam{position:fixed;inset:0;z-index:6;pointer-events:none;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 55%,rgba(0,0,0,.6) 100%),repeating-linear-gradient(0deg,rgba(0,0,0,.08) 0 1px,rgba(0,0,0,0) 1px 3px)}
 #subcam-txt{position:absolute;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 90px);transform:translateX(-50%);font:600 13px/1 ui-monospace,monospace;color:#9effd8;letter-spacing:.08em;text-shadow:0 0 6px rgba(0,0,0,.8)}
 #t-sonar{width:auto;height:46px;border-radius:999px;padding:0 16px;font-weight:600;font-size:14px;color:#7fe0b8}
@@ -249,6 +250,7 @@ body.touch #hud{top:calc(env(safe-area-inset-top,0px) + 60px);transform:scale(.8
     <span>Lights</span><button id="tub-lights" class="tog">On</button>
   </div>
 </div>
+<button id="sub-view" class="glass" hidden>Outside view</button>
 <div id="subcam" hidden><div id="subcam-txt"></div></div>
 <div id="toast"><div class="t1" id="toast-1"></div><div class="t2" id="toast-2"></div></div>
 
@@ -6252,6 +6254,20 @@ function updateTub(dt) {
   updatePump(dt);
 }
 
+function poolClimbOut() {
+  if (P.climb) return;
+  const l = worldToCabin(P.pos.x, P.pos.z), w = poolWhere(P.pos.x, P.pos.z);
+  let tx, tz;
+  if (w === 'tub') { const a = Math.atan2(l.z - TUBB.z, l.x - TUBB.x); tx = TUBB.x + Math.cos(a) * (TUBB.R + 0.55); tz = TUBB.z + Math.sin(a) * (TUBB.R + 0.55); }
+  else {
+    // the nearest edge of the pool, and a step beyond it onto the deck
+    const opts = [[POOLB.x0 - 0.5, clamp(l.z, POOLB.z0 + 0.3, POOLB.z1 - 0.3), l.x - POOLB.x0], [POOLB.x1 + 0.5, clamp(l.z, POOLB.z0 + 0.3, POOLB.z1 - 0.3), POOLB.x1 - l.x], [clamp(l.x, POOLB.x0 + 0.3, POOLB.x1 - 0.3), POOLB.z0 - 0.5, l.z - POOLB.z0], [clamp(l.x, POOLB.x0 + 0.3, POOLB.x1 - 0.3), POOLB.z1 + 0.5, POOLB.z1 - l.z]];
+    opts.sort((a, b) => a[2] - b[2]); [tx, tz] = opts[0];
+  }
+  const t = cabinToWorld(tx, 0, tz);
+  P.climb = { from: P.pos.clone(), to: new THREE.Vector3(t.x, CABIN.floor + EYE, t.z), t: 0 };
+}
+
 // ───────────────────── 13c. The drain pump and its hose ─────────────────────
 // A yellow submersible pump stands by the cabin's back door. Pick it up, set it down in any water (the
 // pool, the hot tub, a hole you dug, the sea) and you're left holding the end of 30 m of hose: walk it
@@ -6259,7 +6275,7 @@ function updateTub(dt) {
 // wraps round walls and trees rather than passing through them. While the pump is under water it
 // pumps: the water comes out of the far end (into the sea, onto the sand where it soaks in and runs,
 // or into the pool if that's where you left it).
-const PUMP = { carry: null, pos: new THREE.Vector3(), deployed: false, endPlaced: false, end: new THREE.Vector3(), N: 46, seg: 0.66, nodes: [], prev: [], running: false, acc: 0, pourAcc: 0, its: {} };
+const PUMP = { carry: null, pos: new THREE.Vector3(), deployed: false, endPlaced: false, end: new THREE.Vector3(), N: 72, seg: 0.66, nodes: [], prev: [], running: false, acc: 0, pourAcc: 0, its: {} };
 const _ph = new THREE.Vector3(), _pf2 = new THREE.Vector3(), _pr2 = new THREE.Vector3();
 function pumpModel() {
   const P = [];
@@ -6309,6 +6325,8 @@ function handPos(out) {
 }
 function placePumpModel() { PUMP.model.position.copy(PUMP.pos); PUMP.model.visible = PUMP.carry !== 'pump'; PUMP.coil.visible = !PUMP.deployed; PUMP.coil.parent.children.forEach(c => { if (c !== PUMP.coil && c.geometry && c.geometry.type === 'TorusGeometry') c.visible = !PUMP.deployed; }); }
 function pickPump() {
+  // the hose winds back onto the pump and comes with it
+  if (PUMP.deployed) { PUMP.deployed = false; PUMP.endPlaced = false; PUMP.running = false; PUMP.hose.visible = false; if (AUDIO.pump) AUDIO.pump(0); }
   PUMP.carry = 'pump'; if (TOOL.cur !== 'hands') setTool('hands');
   placePumpModel();
   showActivityHint(isTouch ? 'Tap Place to set the pump down in some water' : 'Click (or F) to set the pump down, ideally in some water', false, 4);
@@ -6371,17 +6389,13 @@ function updatePump(dt) {
   placePumpModel();
   if (!PUMP.deployed) { PUMP.running = false; if (AUDIO.pump) AUDIO.pump(0); return; }
   // the hose: a chain of points under gravity, pinned at the pump and at its end
-  const N = PUMP.N, seg = PUMP.seg, nodes = PUMP.nodes, prev = PUMP.prev, h = Math.min(dt, 1 / 30);
+  const N = PUMP.N, nodes = PUMP.nodes, prev = PUMP.prev, h = Math.min(dt, 1 / 30);
   const a = nodes[0], b = nodes[N - 1];
   a.set(PUMP.pos.x, PUMP.pos.y + 0.32, PUMP.pos.z);
   if (PUMP.carry === 'hose') handPos(b); else if (PUMP.endPlaced) b.copy(PUMP.end);
-  // you can't walk further than the hose reaches
-  const reach = seg * (N - 1) * 0.97, span = a.distanceTo(b);
-  if (PUMP.carry && span > reach) {
-    const k = (span - reach) / span, pin = PUMP.carry === 'hose' ? a : b;
-    P.pos.x += (pin.x - P.pos.x) * 0; P.pos.x -= (P.pos.x - pin.x) * k; P.pos.z -= (P.pos.z - pin.z) * k;
-    if (!PUMP.tightT || PUMP.tightT < U.uTime.value - 2) { PUMP.tightT = U.uTime.value; showActivityHint('The hose won’t reach any further', true, 1.4); }
-  }
+  // the hose pays out as far as you take it: always a little longer than the gap, so it lies slack
+  PUMP.seg = Math.max(0.5, a.distanceTo(b) * 1.15 / (N - 1));
+  const seg = PUMP.seg;
   for (let i = 1; i < N - 1; i++) {
     const p = nodes[i], q = prev[i], vx = (p.x - q.x) * 0.985, vy = (p.y - q.y) * 0.985, vz = (p.z - q.z) * 0.985;
     q.copy(p); p.x += vx; p.y += vy - 9.8 * h * h; p.z += vz;
@@ -7006,7 +7020,7 @@ function drawDepth() {
 // the bow camera's picture on the big screen
 const subCam = new THREE.PerspectiveCamera(70, 384 / 216, 0.3, 3000);
 function renderSubCam() {
-  if (!SUB.scr || P.mode !== 'sub' || SUB.view !== 'inside') return;
+  if (!SUB.scr || (P.mode !== 'sub' && P.mode !== 'subwalk') || SUB.view !== 'inside') return;
   SUB.scr.t = (SUB.scr.t || 0) + 1; if (SUB.scr.t % 2) return;
   subToWorld(SUB_BOW, subCam.position); subCam.quaternion.copy(SUB.mesh.quaternion);
   subCam.layers.mask = camera.layers.mask | 7;
@@ -7062,7 +7076,7 @@ function updateSubBoard(dt) {
   if (B.t < 0.42) { const e = smoothstep(0, 0.42, B.t); pos = new THREE.Vector3().lerpVectors(B.from, top, e); pos.y += Math.sin(e * Math.PI) * 2.5; look = 0.0 - e * 0.7; lid.rotation.x = -e * 1.9; }
   else { const e = smoothstep(0.42, 1, B.t); const shaft = subToWorld(new THREE.Vector3(0, 1.2, -5.2), new THREE.Vector3()); pos = e < 0.75 ? new THREE.Vector3().lerpVectors(top, shaft, e / 0.75) : new THREE.Vector3().lerpVectors(shaft, seat, (e - 0.75) / 0.25); look = -0.7 + e * 0.75; lid.rotation.x = -1.9 * (1 - smoothstep(0.5, 0.75, e)); SUB.parts.interior.visible = e > 0.1; }
   SUB.boardCam = { pos, pitch: look };
-  if (B.t >= 1) { SUB.board = null; P.mode = 'sub'; SUB.view = 'inside'; P.yaw = 0; P.pitch = -0.08; enterSubControls(); }
+  if (B.t >= 1) { SUB.board = null; P.mode = 'sub'; SUB.view = 'inside'; P.yaw = 0; P.pitch = -0.08; enterSubControls(); syncSubViewBtn(); }
 }
 function enterSubControls() {
   if (AUDIO.seat) AUDIO.seat('boat-seat');
@@ -7081,10 +7095,10 @@ function cycleSubView() {
   P.yaw = 0; P.pitch = SUB.view === 'outside' ? -0.25 : -0.05;
   SUB.parts.interior.visible = SUB.view === 'inside';
   toast(SUB.view === 'inside' ? 'Control room' : SUB.view === 'nose' ? 'Bow camera' : 'Outside view', '');
-  syncSubHud();
+  syncSubHud(); syncSubViewBtn();
 }
 function exitSub() {
-  const d = subDepth();
+  const d = subDepth(); if ($('sub-view')) $('sub-view').hidden = true;
   $('hud').hidden = true; $('t-sonar').hidden = true; $('subcam').hidden = true; setSonar(false);
   SUB.parts.interior.visible = false;
   if (d > HATCH_SAFE) { implode(false); return; }
@@ -7103,6 +7117,7 @@ function implode(hullFailed) {
   const fl = $('flash'); fl.style.transition = 'none'; fl.style.background = '#e8f4ff'; fl.style.opacity = 1;
   requestAnimationFrame(() => { fl.style.transition = 'opacity 1.6s ease-out'; fl.style.opacity = 0; setTimeout(() => fl.style.background = '', 1700); });
   if (AUDIO.implode) AUDIO.implode();
+  if ($('sub-view')) $('sub-view').hidden = true;
   for (let i = 0; i < 80 && FX.bubbles; i++) FX.bubbles(SUB.x + rand(-6, 6), SUB.y + rand(-2, 4), SUB.z + rand(-12, 12), 2);
   P.shake = 1; P.dunk = 1; P.mode = 'dead'; if (!hullFailed) SUB.state = 'parked';
   SUB.parts.interior.visible = false; $('subcam').hidden = true;
@@ -7130,6 +7145,7 @@ function updateSub(dt) {
     if (SUB.y > -SUB.R - 2) { SUB.y = damp(SUB.y, surf - SUB.R * 0.62, 2, dt); SUB.roll = Math.sin(t * 0.6) * 0.012; SUB.pitch = Math.sin(t * 0.45) * 0.006; }
     syncSub(); SUB.parts.beamMat.uniforms.uOn.value = 0; SUB.parts.mastLight.visible = Math.sin(t * 3) > 0;
     U.uSubL.value.w = 0;
+    if (P.mode === 'subwalk') { const d = subDepth(), atm = 1 + d / 10.06, S = SUB.scr; S.needle.rotation.z = -(-135 + clamp(atm / 160, 0, 1.04) * 270) * Math.PI / 180; S.drawT = (S.drawT || 0) - dt; if (S.drawT <= 0) { S.drawT = 0.12; drawSonar(); drawRadar(); drawDepth(); } }
     return;
   }
   // controls
@@ -7194,6 +7210,7 @@ function updateSub(dt) {
 const _subc = new THREE.Vector3();
 function subCamera() {
   if (P.mode === 'subboard' && SUB.boardCam) { camera.position.copy(SUB.boardCam.pos); camera.rotation.set(SUB.boardCam.pitch, SUB.yaw + Math.PI, 0, 'YXZ'); return; }
+  if (P.mode === 'subwalk') { const W = SUB.walk, bob = Math.sin(W.bob * 2) * 0.025; subToWorld(new THREE.Vector3(W.x, -1.15 + EYE + bob, W.z), camera.position); _sube.set(clamp(P.pitch, -1.3, 1.3), P.yaw, 0, 'YXZ'); _subq.setFromEuler(_sube); camera.quaternion.copy(SUB.mesh.quaternion).multiply(_subq); return; }
   const q = SUB.mesh.quaternion;
   if (SUB.view === 'outside') {
     const yaw = SUB.yaw + P.yaw, pitch = clamp(P.pitch, -1.2, 0.6) - 0.1, dist = 34;
@@ -7204,6 +7221,48 @@ function subCamera() {
   subToWorld(SUB.view === 'nose' ? SUB_BOW : SUB_SEAT, camera.position);
   _sube.set(clamp(P.pitch, -1.2, 1.2), clamp(P.yaw, SUB.view === 'nose' ? -1.1 : -3.1, SUB.view === 'nose' ? 1.1 : 3.1), 0, 'YXZ'); _subq.setFromEuler(_sube);
   camera.quaternion.copy(q).multiply(_subq);
+}
+
+// ---- on your feet in the control room ----
+SUB.walk = { x: 0, z: -4.6, bob: 0 };
+const SUB_LADDER = { x: 0, z: -5.2 }, SUB_CHAIR = { x: 0, z: -6.2 };
+function subStand() {
+  if (SUB.view !== 'inside') { SUB.view = 'inside'; SUB.parts.interior.visible = true; }
+  P.mode = 'subwalk'; SUB.state = 'parked'; SUB.speed = 0; SUB.vy = 0;
+  SUB.walk.x = 0.6; SUB.walk.z = -5.6; P.yaw = 0; P.pitch = -0.05;
+  if (AUDIO.subHum) AUDIO.subHum(0, 0, true);
+  syncSubHud(); syncSubViewBtn();
+  showActivityHint(isTouch ? 'Walk round the control room · Sit to drive · the ladder takes you out' : 'Walk round the control room · E at the chair to drive · E at the ladder to climb out', false, 5);
+}
+function subSit() {
+  P.mode = 'sub'; SUB.state = 'driving'; SUB.view = 'inside'; P.yaw = 0; P.pitch = -0.08;
+  enterSubControls(); syncSubViewBtn();
+}
+function subWalk(dt) {
+  const W = SUB.walk;
+  let mx = input.mx, my = input.my; const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
+  const fx = -Math.sin(P.yaw), fz = -Math.cos(P.yaw), rx = Math.cos(P.yaw), rz = -Math.sin(P.yaw);
+  const sp = 2.1 * (input.run ? 1.5 : 1);
+  let x = W.x + (fx * my + rx * mx) * sp * dt, z = W.z + (fz * my + rz * mx) * sp * dt;
+  // the curve of the hull, the console in front and the bulkhead behind
+  x = clamp(x, -1.5, 1.5); z = clamp(z, -7.4, -1.6);
+  for (const o of [{ x: 0, z: -5.85, r: 0.5 }, { x: SUB_LADDER.x, z: SUB_LADDER.z, r: 0.3 }]) { const dx = x - o.x, dz = z - o.z, d = Math.hypot(dx, dz); if (d < o.r) { x = o.x + dx / (d || 1) * o.r; z = o.z + dz / (d || 1) * o.r; } }
+  const moved = Math.hypot(x - W.x, z - W.z); W.x = x; W.z = z; W.bob += moved * 2.2;
+  if (moved > 0.6 * dt && AUDIO.step && (W.stepT = (W.stepT || 0) + moved) > 0.75) { W.stepT = 0; AUDIO.step('wood', false, 0); }
+  subToWorld(new THREE.Vector3(W.x, -1.15 + EYE, W.z), P.pos); P.camY = P.pos.y;
+}
+// what you can do on your feet in here
+function subWalkInteract() {
+  const W = SUB.walk, dc = Math.hypot(W.x - SUB_CHAIR.x, W.z - SUB_CHAIR.z), dl = Math.hypot(W.x - SUB_LADDER.x, W.z - SUB_LADDER.z);
+  if (dc < 1.0 && dc <= dl) return { label: 'Sit at the controls', short: 'Sit', subSit: true };
+  if (dl < 1.0) { const d = subDepth(); return { label: d > HATCH_SAFE ? `Climb out of the hatch (deadly at ${Math.round(d)} m!)` : 'Climb up the ladder and out', short: 'Climb out', exitSub: true }; }
+  return null;
+}
+// the view button: control room, bow camera, outside
+function syncSubViewBtn() {
+  const b = $('sub-view'); if (!b) return;
+  b.hidden = P.mode !== 'sub';
+  b.textContent = SUB.view === 'inside' ? 'Bow camera' : SUB.view === 'nose' ? 'Outside view' : 'Control room';
 }
 
 // ───────────────────── 16e. Surfing ─────────────────────
@@ -10878,6 +10937,7 @@ addEventListener('keydown', e => {
       if (e.code === 'KeyJ') toggleJournal();
       if (e.code === 'KeyX' && P.mode === 'sub') setSonar(!SUB.sonar);
       if (e.code === 'KeyV' && P.mode === 'sub') cycleSubView();
+      if (e.code === 'Space' && (P.mode === 'swim' || P.mode === 'walk') && poolWhere(P.pos.x, P.pos.z) && P.pos.y - EYE < CABIN.floor - 0.2) poolClimbOut();
       if (e.code === 'KeyR' && P.mode === 'sub') { SUB.radar = !SUB.radar; if (AUDIO.beep) AUDIO.beep(); }
       if (e.code === 'KeyL' && P.mode === 'sub') SUB.lightsToggle = true;
       else if (e.code === 'KeyL' && (P.mode === 'boat' || DECK.boat)) toggleHeadlights();
@@ -10964,7 +11024,7 @@ const holdBtn = (el, prop, onPress) => {
   const off = e => { touch[prop] = false; el.classList.remove('down'); };
   el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off); el.addEventListener('pointerleave', off);
 };
-holdBtn($('t-up'), 'up', () => { input.jump = true; });
+holdBtn($('t-up'), 'up', () => { input.jump = true; if (started && (P.mode === 'swim' || P.mode === 'walk') && poolWhere(P.pos.x, P.pos.z) && P.pos.y - EYE < CABIN.floor - 0.2) poolClimbOut(); });
 holdBtn($('t-down'), 'down');
 $('t-act').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); input.interact = true; });
 $('t-tool').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); cycleTool(); });
@@ -11068,6 +11128,7 @@ function updatePlayer(dt) {
   if (P.mode === 'boat') { updateBoatDrive(dt); input.jump = false; return; }
   if (P.mode === 'sub') { updateSub(dt); input.jump = false; return; }
   if (P.mode === 'subboard') { input.jump = false; return; }
+  if (P.mode === 'subwalk') { subWalk(dt); input.jump = false; return; }
   if (P.mode === 'surf') { updateSurf(dt); input.jump = false; return; }
   if (P.mode === 'tube') { P.water = waterAt(P.pos.x, P.pos.z); input.jump = false; return; }
   if (P.climb) return updateClimb(dt);
@@ -11164,7 +11225,7 @@ function swimStep(dt, w, mx, my, ml, fx, fz, rx, rz) {
   P.pos.x = nx; P.pos.z = nz;
   P.pos.y += P.vel.y * dt;
   if (P.pos.y > surf + 0.22) { P.pos.y = surf + 0.22; P.vel.y = Math.min(P.vel.y, 0); }
-  const gg = groundHeight(P.pos.x, P.pos.z);
+  const gg = poolWhere(P.pos.x, P.pos.z) ? supportHeight(P.pos.x, P.pos.z, P.pos.y - 0.8) : groundHeight(P.pos.x, P.pos.z);
   if (P.pos.y < gg + 0.5) { P.pos.y = gg + 0.5; P.vel.y = Math.max(P.vel.y, 0); }
   P.depth = surf - gg;
   // strokes: gentle splashes at the surface, bubbles below
@@ -11205,7 +11266,10 @@ function nearestInteract() {
   if (P.mode === 'surf') return { label: 'Get off the board', short: 'Get off', exitSurf: true };
   if (P.mode === 'plane') return PLANE.onGround && PLANE.vel.length() < 3 ? { label: 'Climb out of the plane', short: 'Get out', exitPlane: true } : null;
   if (P.mode === 'subboard') return null;
-  if (P.mode === 'sub') { const d = subDepth(); return { label: d > HATCH_SAFE ? `Open the hatch (deadly at ${Math.round(d)} m!)` : d > 2 ? 'Open the hatch and swim out' : 'Climb out of the sub', short: d > HATCH_SAFE ? 'Hatch!' : 'Get out', exitSub: true }; }
+  if (P.mode === 'sub') return { label: 'Stand up', short: 'Stand', subStand: true };
+  if (P.mode === 'subwalk') return subWalkInteract();
+  // in the pool or the hot tub: a way out
+  if ((P.mode === 'swim' || P.mode === 'walk') && poolWhere(P.pos.x, P.pos.z) && P.pos.y - EYE < CABIN.floor - 0.2) return { label: poolWhere(P.pos.x, P.pos.z) === 'tub' ? 'Climb out of the hot tub' : 'Climb out of the pool', short: 'Climb out', poolOut: true };
   if (P.mode === 'boat') return { label: 'Get out of the boat', short: 'Get out', exitBoat: true };
   if (P.mode === 'tube') return { label: 'Get off the tube', short: 'Get off', exitTube: true };
   if (P.mode !== 'walk' && P.mode !== 'swim') return null;
@@ -11260,7 +11324,7 @@ function updateSeat(dt) {
 // ───────────────────── 32. Camera ─────────────────────
 const _fwd = new THREE.Vector3();
 function updateCamera(dt) {
-  if ((P.mode === 'sub' || P.mode === 'subboard') && SUB.mesh) { subCamera(); return; }
+  if ((P.mode === 'sub' || P.mode === 'subboard' || P.mode === 'subwalk') && SUB.mesh) { subCamera(); return; }
   P.camY = Math.abs(P.camY - P.pos.y) > 4 ? P.pos.y : damp(P.camY, P.pos.y, P.mode === 'walk' ? 16 : 9, dt);
   let bobY = 0, bobX = 0, roll = 0;
   if (settings.headBob && P.mode === 'walk') { bobY = Math.sin(P.bob * 2) * 0.032 * P.bobAmt; bobX = Math.cos(P.bob) * 0.022 * P.bobAmt; }
@@ -11385,6 +11449,7 @@ function wirePanel() {
   $('b-calm').addEventListener('click', () => { calmSea(); });
   $('b-repair').addEventListener('click', () => { repairIsland(); });
   $('t-sonar').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); setSonar(!SUB.sonar); });
+  $('sub-view').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); cycleSubView(); });
   $('t-lights').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); toggleHeadlights(); });
   $('b-journal').addEventListener('click', () => { togglePanel(false); toggleJournal(true); });
   $('j-close').addEventListener('click', () => toggleJournal(false));
@@ -11433,6 +11498,7 @@ function updatePrompt() {
       else if (it.kind === 'plane') boardPlane(); else if (it.kind === 'sub') boardSub();
       else if (it.kind === 'drive') boardBoat(it); else if (it.kind === 'tube') startTube();
       else if (it.takeLantern) takeLantern();
+      else if (it.subStand) subStand(); else if (it.subSit) subSit(); else if (it.poolOut) poolClimbOut();
       else if (it.tubPanel) openTubPanel(); else if (it.pumpPick) pickPump(); else if (it.hosePick) pickHose(); else if (it.reel) reelHose();
       else if (it.action) cabinAction(it);
       else { sit(it); if (it.bed) startSleep(); }
@@ -11472,7 +11538,7 @@ function frame(now) {
   if (under && SUB.sonar) { U.uWaterFog.value.set(0.0, 0.035, 0.03); U.uWaterFogDensity.value = 0.0035; }
   else if (under && P.mode === 'sub' && SUB.lights) U.uWaterFogDensity.value = Math.max(0.02, U.uWaterFogDensity.value * 0.8);
   if (under && P.mode === 'sub' && SUB.view === 'outside') U.uWaterFogDensity.value *= 0.55;
-  $('uw').style.opacity = under ? (P.mode === 'sub' ? (SUB.view === 'inside' ? 0 : 0.3) : P.mode === 'subboard' ? 0 : 1) : 0;
+  $('uw').style.opacity = under ? (P.mode === 'sub' ? (SUB.view === 'inside' ? 0 : 0.3) : P.mode === 'subboard' || P.mode === 'subwalk' ? 0 : 1) : 0;
   WATER.uCenter.value.set(Math.round(camera.position.x), Math.round(camera.position.z));
   updateOceanLOD(camera);
   updateShadowFrame(started ? P.pos : camera.position);
@@ -11573,7 +11639,7 @@ const startBoot = data => boot(data || {}).catch(err => { console.error(err); fa
 if (hot && hot.ready) hot.ready(startBoot); else startBoot(hot && hot.data);
 // small handle for poking at the island from the browser console
 window.__bp = { updateSeaLife, P, ENV, WX, settings, begin, camera, renderer, scene, spawnPlayer, groundHeight, PLACES, SPAWN, applyQuality, POOL, STREAM, FIELDS, INTERACT, input, keys, sit, U, updatePlayer, readKeys, waterAt, LAYOUT, SEA, PLATFORMS, updatePrompt,
-  applyWaterStyle, updateCamera, FX, WFX, SPRAY, OLOD, updateOceanLOD, surfState, Q, LIGHTS, DECK, applyQuality, ISLANDS, FAR, farField, farHeight, TUB, PUMP, ABYSS, keys, updatePump, updateSub, SUB_SEAT, cycleSubView, updateSubBoard, subCamera, renderSubCam, POOLB, TUBB, openTubPanel, closeTubPanel, pickPump, pickHose, placeCarried, reelHose, updateTub, poolWaterAt, cutGrass, LAWN, useLantern, takeLantern, toggleHeadlights, standOnDeck, deckTopAt, deckClimbFrom, updateLights, splashAt, rippleDrop, supportHeight, applyShovelPower, updateBoats, boatPhysics, updateTsunami, updateCabin, BUCKET, wetArea, SURF, startSurf, updateSurf, endSurf, surfAtJS, TREEFALL, breakTree, allTrees, blastTrees, updateTreefall, unhideTrees, VEG, PLANE, SUB, TRENCH, boardPlane, exitPlane, updatePlane, resetPlane, planeExplode, boardSub, exitSub, updateSub, setSonar, subDepth, implode, ANIMALS, updateBigAnimals, showHeldFish, FISHING, FISH, rollFish, hookFish, landFish, habitatAt, toggleJournal, updateFishing, WXFX, strike, updateWeatherFX, CABIN, WALLS, TSU, DESTROY, destroyCabin, repairIsland, flushTerrain, tsunamiErode, updateDestruction, sendTsunami, calmSea, insideCabin, cabinToWorld, worldToCabin, startSleep, cabinAction, nearestInteract, oceanHeight, tsunamiJS, pourAt, scoopAt, returnBoat,
+  applyWaterStyle, updateCamera, FX, WFX, SPRAY, OLOD, updateOceanLOD, surfState, Q, LIGHTS, DECK, applyQuality, ISLANDS, FAR, farField, farHeight, TUB, PUMP, ABYSS, subStand, subSit, subWalk, poolClimbOut, nearestInteract, updatePlayer, input, keys, updatePump, updateSub, SUB_SEAT, cycleSubView, updateSubBoard, subCamera, renderSubCam, POOLB, TUBB, openTubPanel, closeTubPanel, pickPump, pickHose, placeCarried, reelHose, updateTub, poolWaterAt, cutGrass, LAWN, useLantern, takeLantern, toggleHeadlights, standOnDeck, deckTopAt, deckClimbFrom, updateLights, splashAt, rippleDrop, supportHeight, applyShovelPower, updateBoats, boatPhysics, updateTsunami, updateCabin, BUCKET, wetArea, SURF, startSurf, updateSurf, endSurf, surfAtJS, TREEFALL, breakTree, allTrees, blastTrees, updateTreefall, unhideTrees, VEG, PLANE, SUB, TRENCH, boardPlane, exitPlane, updatePlane, resetPlane, planeExplode, boardSub, exitSub, updateSub, setSonar, subDepth, implode, ANIMALS, updateBigAnimals, showHeldFish, FISHING, FISH, rollFish, hookFish, landFish, habitatAt, toggleJournal, updateFishing, WXFX, strike, updateWeatherFX, CABIN, WALLS, TSU, DESTROY, destroyCabin, repairIsland, flushTerrain, tsunamiErode, updateDestruction, sendTsunami, calmSea, insideCabin, cabinToWorld, worldToCabin, startSleep, cabinAction, nearestInteract, oceanHeight, tsunamiJS, pourAt, scoopAt, returnBoat,
   SAND, digAt, carveStroke, stampFoot, updateSand, riverQuery, BOATS, TUBE, boardBoat, exitBoat, startTube, setTool, TOOL, updateTools, aimGround, updateTubeWorld, sandWaterAt, SPRING };
 
 // ───────────────────── 36. Multiplayer ─────────────────────
