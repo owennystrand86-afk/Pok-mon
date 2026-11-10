@@ -50,7 +50,7 @@ It needs WebGL 2 and an internet connection the first time (for three.js and the
 | Fish | With the rod: hold the mouse button (or `F`) to wind up a cast and let go to throw; click when the bobber dips; hold to reel and ease off when the line goes red | Cast, then Reel |
 | Fish journal | `J` | Settings, Fish journal |
 | Dig / place dirt / scoop / write | Click (or hold `F`) to dig with the shovel; `G` or right-click switches it to placing dirt and back; click to fill the bucket from the sea, the river or a pool you dug, and again to pour it out; hold and look around to write with the stick | Dig or Fill (Fill mode / Dig mode switches), Scoop / Pour, or Draw to start and stop writing |
-| Build | `B` (or click the Build box at the top of the screen) opens the build box: pick timber, steel or electrics to place, or a tool to hold. Placing: click to put it down (again and again), `R` rotate, `T` tip it on its side, `X` or right-click when you're done. Tools: click (or hold `F`) to use them, `X` puts them away. `E` on a power box, switch, button or radio uses it | Build box at the top; Place / Weld / Screw / Connect / Cut button; Rotate, Tilt, Delete and ✕ in the box |
+| Build | `B` (or click the Build box at the top of the screen) opens the build box: pick timber, steel or electrics to place. Placing: click to put it down (again and again), `R` rotate, `T` tip it on its side, `X` or right-click when you're done. `E` on a power box, switch, button or radio uses it | Build box at the top; Place / Weld / Screw / Connect / Cut button; Rotate, Tilt, Delete and ✕ in the box |
 | Settings | `Esc`, `M` or the button in the top-right corner | Button in the top-right corner |
 
 If the browser does not allow the mouse to be captured (some embedded viewers), hold the mouse
@@ -193,9 +193,7 @@ Settings are remembered in your browser.
   soft, ragged edges and water running over sand carves smooth grooves.
 - A build box at the top of the screen, on computers and phones. It spawns timber (planks, short boards,
   beams, long beams, posts, plywood sheets, crates), steel (plates, small plates, square tube,
-  I-beams, pipe, steel posts, blocks) and electrics, and it's the only place to take the build tools
-  from (and put them back): a grab glove, a MIG welder, an angle grinder, a screwdriver, a wire spool,
-  wire cutters and a multimeter. Every item has a 3D picture.
+  I-beams, pipe, steel posts, blocks) and electrics, each with a 3D picture.
   - Placing: a see-through copy follows where you look, snaps flush against the face of whatever
     you point at (lined up with it, flush with its edges), or sits on the ground square to you. Rotate
     it, tip it on its side, and place as many as you like. It turns red where it won't fit.
