@@ -1246,6 +1246,8 @@ function makeTerrainMaterial(tile) {
       vec4 nE = texture2D(uNoiseTex, wp.xz * 7.3);
       float camD = length(wp - cameraPosition);
       float nearF = 1.0 - smoothstep(5.0, 26.0, camD);
+      // the finest layers repeat every few centimetres: show them only close up, or the repeat reads as a lattice
+      float fineF = 1.0 - smoothstep(2.0, 6.5, camD), midF = 1.0 - smoothstep(5.0, 15.0, camD);
       float slope = 1.0 - clamp(vNrmW.y, 0.0, 1.0);
       float under = smoothstep(0.25, -0.7, wp.y);
       float rockW = max(vMask.b, smoothstep(0.34, 0.58, slope + (nB.r - 0.5) * 0.22));
@@ -1263,17 +1265,17 @@ function makeTerrainMaterial(tile) {
       tWet = max(tWet * (1.0 - under), max(max(uWet * 0.8, dug * 0.75), wetS * 0.95));
       // sand: patches of whiter and warmer grains, darker coarse grains, the odd shell fragment
       // warm, pale gold; drier and whiter up the beach, a little darker and richer toward the water
-      vec3 cSand = mix(vec3(0.60, 0.48, 0.31), vec3(0.68, 0.58, 0.42), smoothstep(0.35, 0.7, nA.r));
-      cSand = mix(cSand, vec3(0.71, 0.63, 0.48), smoothstep(1.2, 3.2, wp.y) * 0.6);
+      vec3 cSand = mix(vec3(0.56, 0.44, 0.275), vec3(0.64, 0.535, 0.37), smoothstep(0.35, 0.7, nA.r));
+      cSand = mix(cSand, vec3(0.655, 0.56, 0.40), smoothstep(1.2, 3.2, wp.y) * 0.55);
       cSand *= 0.94 + 0.12 * texture2D(uNoiseTex, wp.xz * 0.0037 + 0.5).g;
       cSand *= 0.9 + 0.14 * nB.b + 0.08 * nC.a;
-      cSand *= 0.93 + 0.14 * nE.a * nearF;
+      cSand *= 0.93 + 0.14 * nE.a * fineF;
       // individual grains up close: dark mineral specks, white quartz, pink shell grit
-      { float gs = hash12t(floor(wp.xz * 140.0)); float gnear = 1.0 - smoothstep(1.5, 7.0, camD);
+      { float gs = hash12t(floor(wp.xz * 140.0)); float gnear = 1.0 - smoothstep(1.2, 4.5, camD);
         cSand = mix(cSand, vec3(0.28, 0.25, 0.22), step(0.965, gs) * 0.7 * gnear);
         cSand = mix(cSand, vec3(0.93, 0.91, 0.86), step(0.935, gs) * (1.0 - step(0.965, gs)) * 0.6 * gnear);
         cSand = mix(cSand, vec3(0.86, 0.66, 0.6), step(0.92, gs) * (1.0 - step(0.935, gs)) * 0.5 * gnear); }
-      cSand = mix(cSand, vec3(0.42, 0.36, 0.28), smoothstep(0.82, 0.95, nE.r) * 0.5 * nearF);
+      cSand = mix(cSand, vec3(0.42, 0.36, 0.28), smoothstep(0.82, 0.95, nE.r) * 0.5 * fineF);
       float shellF;
       { vec2 sq = wp.xz * 22.0, sc = floor(sq); float sh = hash12t(sc);
         vec2 sp = fract(sq) - 0.5 - (vec2(hash12t(sc + 5.3), hash12t(sc + 9.1)) - 0.5) * 0.5;
@@ -1285,7 +1287,7 @@ function makeTerrainMaterial(tile) {
       { float patchN = texture2D(uNoiseTex, wp.xz * 0.0043 + 0.21).b;
         cGrass = mix(cGrass, vec3(0.34, 0.33, 0.13), smoothstep(0.55, 0.8, patchN) * 0.55);           // dry
         cGrass = mix(cGrass, vec3(0.07, 0.16, 0.045), smoothstep(0.5, 0.2, patchN) * 0.5);           // lush
-        cGrass *= 0.82 + 0.3 * nC.b + 0.12 * nD.g * nearF;
+        cGrass *= 0.82 + 0.3 * nC.b + 0.12 * nD.g * midF;
         cGrass = mix(cGrass, vec3(0.24, 0.18, 0.11) * (0.8 + 0.4 * nC.r), smoothstep(0.7, 0.9, nB.a * 0.6 + nC.g * 0.5) * 0.5); }
       vec3 cJungle = mix(vec3(0.10, 0.13, 0.05), vec3(0.19, 0.16, 0.08), nB.r) * (0.8 + 0.4 * nC.g);
       // rock on steep faces is textured from the side (triplanar), so cliffs aren't smeared streaks
@@ -1318,7 +1320,7 @@ function makeTerrainMaterial(tile) {
         cDirt = mix(cDirt, vec3(0.17, 0.12, 0.08), smoothstep(0.72, 0.9, nE.r) * 0.6);
         col = mix(col, cDirt, dk * (1.0 - rockW * 0.5)); sandW *= 1.0 - dk; dug *= 1.0 - dk; }
       col *= 1.0 - carve * 0.4 * sandW;
-      col *= mix(1.0, mix(0.78, 0.6, sandW), tWet);
+      col *= mix(vec3(1.0), mix(vec3(0.78), vec3(0.56, 0.54, 0.52), sandW), tWet);   // wet sand is much darker and a touch cooler
       col *= mix(1.0, 0.86, under);
       diffuseColor.rgb = col;
       // fine relief for the bump pass: wind ripples on dry sand, wave ripples under water, grains, carving
@@ -1327,10 +1329,11 @@ function makeTerrainMaterial(tile) {
       float ph = dot(wp.xz, rdir) * 33.0 + warp * 3.0;
       float rWind = (pow(0.5 + 0.5 * sin(ph), 2.2) * 2.0 - 1.0 + 0.35 * sin(ph * 2.0 + 1.0)) * (0.6 + 0.4 * nC.b);   // ripples: a gentle windward slope and a steep lee face
       float rWave = sin(dot(wp.xz, vec2(-rdir.y, rdir.x)) * 16.0 + warp * 2.0);
-      float hDetail = sandW * nearF * (rWind * 0.0026 * (0.5 + 0.5 * smoothstep(0.3, 0.7, nA.b)) * (1.0 - tWet) * (1.0 - under) + rWave * 0.006 * under)
+      float hDetail = sandW * nearF * (rWind * 0.0022 * (1.0 - smoothstep(3.0, 13.0, camD)) * smoothstep(0.35, 0.75, nA.b) * (1.0 - tWet) * (1.0 - under) + rWave * 0.006 * under)
+                    + sandW * 0.03 * (sin(wp.x * 0.23 + wp.z * 0.11) * sin(wp.z * 0.19 - wp.x * 0.07) + 0.45 * sin(wp.x * 0.51 + wp.z * 0.37 + 1.3)) * (1.0 - under) * (1.0 - smoothstep(30.0, 90.0, camD))   // low, soft dunes (smooth maths: a texture here would show its texels as facets)
                     + (tri2.r * 0.09 + strata * 0.04) * rockW * (1.0 - an.y) * (1.0 - smoothstep(10.0, 60.0, camD))
-                    + (nD.a * 0.004 + nE.a * 0.0015 + texture2D(uNoiseTex, wp.xz * 21.0).a * 0.0009 * (1.0 - smoothstep(1.5, 5.0, camD))) * nearF * (1.0 - rockW * 0.5) + nC.r * 0.02 * rockW * nearF
-                    - carve * 0.065 + dirtK * (nD.a * 0.022 + nE.a * 0.009) * nearF;
+                    + (nD.a * 0.004 * midF + nE.a * 0.0015 * fineF + texture2D(uNoiseTex, wp.xz * 21.0).a * 0.0009 * (1.0 - smoothstep(1.5, 4.0, camD))) * (1.0 - rockW * 0.5) + nC.r * 0.02 * rockW * nearF
+                    - carve * 0.065 + dirtK * (nD.a * 0.022 * midF + nE.a * 0.009 * fineF);
     `,
     fRough: 'roughnessFactor = mix(mix(0.96, 0.86, rockW), 0.2, tWet * (0.45 + 0.55 * sheen));',
     fNormal: 'normal = bumpN(-vViewPosition, normal, hDetail);',
@@ -1339,14 +1342,16 @@ function makeTerrainMaterial(tile) {
         vec3 Vw = normalize(cameraPosition - vWPos);
         vec3 Nw = normalize(vNrmW);
         // grains of sand catching the sun
-        vec2 gc = floor(vWPos.xz * 70.0);
-        float gl = step(0.9935, hash12t(gc)) * sandW * (1.0 - tWet) * (1.0 - under) * (1.0 - smoothstep(3.0, 14.0, camD));
+        // (the grid of grains grows with distance, so a glint is never smaller than a pixel and they don't shimmer into patterns)
+        float gLod = exp2(floor(log2(max(camD * 0.45, 1.0))));
+        vec2 gc = floor(vWPos.xz * 70.0 / gLod);
+        float gl = step(0.9935, hash12t(gc + gLod)) * sandW * (1.0 - tWet) * (1.0 - under) * (1.0 - smoothstep(6.0, 34.0, camD)) / sqrt(gLod);
         vec3 gn = normalize(Nw + vec3(hash12t(gc + 3.1) - 0.5, 0.0, hash12t(gc + 7.7) - 0.5) * 0.7);
         outgoingLight += uSunLin * gl * pow(max(dot(reflect(-Vw, gn), uLightDir), 0.0), 40.0) * 1.8;
         // wet sand mirrors the sky as the water drains away
         float fr = 0.03 + 0.97 * pow(1.0 - max(dot(Nw, Vw), 0.0), 5.0);
         vec3 sk = pow(skyHaze(reflect(-Vw, Nw)), vec3(2.2)); sk = mix(sk, vec3(dot(sk, vec3(0.3, 0.55, 0.15))), 0.45);
-        outgoingLight += sk * fr * tWet * (0.25 + 0.75 * sheen) * 0.5 * sandW * (1.0 - under);
+        outgoingLight += sk * fr * tWet * (0.3 + 0.7 * sheen) * 0.75 * sandW * (1.0 - under);
       }`,
   });
 }

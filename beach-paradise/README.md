@@ -63,6 +63,11 @@ button and drag to look instead.
   resolution to keep the frame rate up, so it can be slow.
   Quality changes shadows, plant density and draw distance, particles, fish count and resolution;
   Low also turns off the see-through water and the glow.
+- **How the picture is made**: on Medium and above the world is drawn in high dynamic range with its
+  depth, then finished in one last pass: soft shading in creases and where things meet the ground,
+  shafts of sunlight (also under water), a glow round anything truly bright, anti-aliasing, a touch of
+  sharpening, a filmic tone curve and a light colour grade. Low, and devices that can't draw to
+  floating-point textures, use the simpler direct path.
 - **Glow on bright light**, **Water look** (tropical, crystal clear or deep ocean blue) and **Sky**
   (natural light, a physically based sky, or the painted one).
 - **Keep it smooth**: lowers the resolution a little when the frame rate drops.
@@ -213,6 +218,14 @@ The whole game is `index.html`. The script is organised in numbered sections:
 5. Procedural textures
 6. Island terrain: coastline field, beaches, mountains, waterfall cliff, stream, pool, trail, tide pools
 7. Sky dome with clouds, sun, moon, stars and rainbow
+8d. The final image: solid things go into an HDR target with a depth texture; ambient occlusion is
+   worked out from the depth at half size; the picture and its depth are copied to a second target
+   where the water and see-through things are drawn (water reads the first target, so it knows the
+   distance through the water at every pixel: absorption by depth, soft edges, foam where it touches
+   things, refraction that ignores anything in front of it); then sun shafts, a five-level glow, and a
+   last pass with FXAA, sharpening, the ACES tone curve, grade and vignette. Shaders that paint
+   screen colours send them through the exact inverse of that curve, so they come out unchanged
+   while anything brighter than white keeps its energy for the glow.
 8. Ocean, pools, river and waterfall shaders (the waterfall is a thick body of water that follows a
    path simulated down the actual rock face); 8c. glow on bright light; 8b. water effects: refraction (the frame is drawn
    without water, copied, and the water bends it), a GPU ripple simulation around the camera, a
