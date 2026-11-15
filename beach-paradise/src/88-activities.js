@@ -304,22 +304,10 @@ function buildTools() {
   const hl = new THREE.HemisphereLight(0xffffff, 0x886644, 1), dl = new THREE.DirectionalLight(0xffffff, 2);
   vs.add(hl, dl, dl.target);
   const grp = new THREE.Group(); vs.add(grp);
-  const wood = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.5, 0.34, 0.2, THREE.SRGBColorSpace), roughness: 0.8 });
-  const steel = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.58, 0.6, 0.62, THREE.SRGBColorSpace), roughness: 0.38, metalness: 0.55 });
   const drift = new THREE.MeshStandardMaterial({ color: new THREE.Color().setRGB(0.62, 0.58, 0.52, THREE.SRGBColorSpace), roughness: 0.95 });
-  const shovel = new THREE.Group();
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.019, 1.0, 10), wood); handle.position.y = 0.5; shovel.add(handle);
-  const grip = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.012, 6, 16, Math.PI), wood); grip.position.y = 1.03; grip.rotation.z = Math.PI; shovel.add(grip);
-  const bladeG = new THREE.PlaneGeometry(0.22, 0.3, 10, 8); const bp = bladeG.attributes.position;
-  for (let i = 0; i < bp.count; i++) { const x = bp.getX(i), y = bp.getY(i); bp.setZ(i, x * x * 1.6 + (y < -0.05 ? (y + 0.05) * 0.2 : 0)); bp.setX(i, x * (1 - Math.max(0, -y - 0.06) * 1.6)); }
-  bladeG.computeVertexNormals();
-  // worn steel: shiny where the sand has polished it near the edge, painted near the socket
-  const bladeTex = canvasTex(128, 128, g => { const gr = g.createLinearGradient(0, 0, 0, 128); gr.addColorStop(0, '#2a4a33'); gr.addColorStop(0.35, '#2a4a33'); gr.addColorStop(0.5, '#8a8f93'); gr.addColorStop(1, '#c9ccce'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); for (let i = 0; i < 300; i++) { g.fillStyle = `rgba(255,255,255,${Math.random() * 0.12})`; g.fillRect(Math.random() * 128, 50 + Math.random() * 78, Math.random() * 6, 1); } for (let i = 0; i < 60; i++) { g.fillStyle = `rgba(120,70,30,${Math.random() * 0.25})`; g.beginPath(); g.arc(Math.random() * 128, 30 + Math.random() * 40, Math.random() * 4, 0, 6.3); g.fill(); } });
-  const blade = new THREE.Mesh(bladeG, new THREE.MeshStandardMaterial({ map: bladeTex, roughness: 0.35, metalness: 0.7, side: THREE.DoubleSide })); blade.position.y = -0.12; shovel.add(blade);
-  // the step you push with your foot, and two rivets
-  const step = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.012, 0.03), steel); step.position.set(0, 0.02, 0.012); shovel.add(step);
-  for (const s of [-1, 1]) { const rv = new THREE.Mesh(new THREE.SphereGeometry(0.006, 6, 4), steel); rv.position.set(s * 0.012, 0.06, 0.03); shovel.add(rv); }
-  const sock = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.03, 0.12, 8), steel); sock.position.y = 0.04; shovel.add(sock);
+  // the spade is a Blender model (models/shovel.py): origin where the shaft meets the blade, +Y up the shaft to
+  // the grip, the hollow of the blade facing -Z
+  const shovel = assetModel('shovel', { lod: 0, cast: false, receive: false }) || new THREE.Group();
   const stick = new THREE.Group();
   const sg = new THREE.CylinderGeometry(0.012, 0.024, 0.95, 7, 6); const sp = sg.attributes.position;
   for (let i = 0; i < sp.count; i++) { const y = sp.getY(i); sp.setX(i, sp.getX(i) + Math.sin(y * 4) * 0.02); sp.setZ(i, sp.getZ(i) + Math.sin(y * 7 + 1) * 0.012); }

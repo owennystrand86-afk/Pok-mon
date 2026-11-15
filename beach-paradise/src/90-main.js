@@ -639,6 +639,7 @@ function tick(dt, now) {
   sim += dt; U.uTime.value = sim;
   readKeys();
   updateEnvironment(dt, sim);
+  updateAssets(dt);
   updateTsunami(dt);
   updateDestruction(dt);
   updateTreefall(dt);
@@ -704,6 +705,7 @@ function frame(now) {
 const beginBtn = $('begin');
 async function boot(saved) {
   const progress = f => { beginBtn.textContent = `Shaping the island… ${Math.round(f * 100)}%`; };
+  await loadAssets();   // the 3D models made in Blender, before anything is built from them
   applySize();
   progress(0.01); await nextFrame();
   U.uNoiseTex.value = makeNoiseTexture(); SKY.uCloudTex.value = makeCloudTexture(); WATER.uNormTex.value = makeWaterNormalTexture();

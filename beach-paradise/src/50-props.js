@@ -116,18 +116,6 @@ function local(o, yaw, fw, rt, up = 0) {
   const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
   return { x: o.x + fx * fw + rx * rt, y: (o.y || 0) + up, z: o.z + fz * fw + rz * rt };
 }
-function beachChair(stripe) {
-  const P = [];
-  // frame along -z (the chair faces -z in local space)
-  for (const sx of [-0.3, 0.3]) {
-    P.push(bx(0.05, 0.05, 1.8, C.woodPale, sx, 0.32, 0.1));
-    P.push(bx(0.05, 0.3, 0.05, C.woodPale, sx, 0.15, -0.7), bx(0.05, 0.3, 0.05, C.woodPale, sx, 0.15, 0.9));
-    P.push(bx(0.05, 0.05, 0.8, C.woodPale, sx, 0.62, 0.72, -0.85));
-  }
-  for (let i = 0; i < 7; i++) P.push(bx(0.58, 0.025, 0.16, i % 2 ? C.white : stripe, 0, 0.35, -0.78 + i * 0.17));
-  for (let i = 0; i < 5; i++) P.push(bx(0.58, 0.025, 0.16, i % 2 ? C.white : stripe, 0, 0.42 + i * 0.12, 0.38 + i * 0.09, -0.85));
-  return P;
-}
 function umbrella(c1, c2) {
   const P = [cy(0.025, 0.03, 2.5, 6, C.woodPale, 0, 1.15, 0)];
   const cone = new THREE.ConeGeometry(1.7, 0.55, 16, 1, true).toNonIndexed();
@@ -294,15 +282,25 @@ const TUBE = { mesh: null, home: null, x: 0, z: 0, riding: false, s: 0, o: 0, sp
 function buildProps() {
   const F = LAYOUT.F, R = LAYOUT.R, yaw0 = SPAWN.yaw;
   const gy = (p) => groundHeight(p.x, p.z);
-  // --- beach chairs + umbrella ---
+  // --- sun loungers + umbrella ---
+  // The loungers are a Blender model (models/lounger.py). Where you lie and where you get up come from its
+  // anchors; each one's towel gets its own colour.
   const ch = LAYOUT.chairs;
-  for (const [i, stripe] of [[0, C.teal], [1, C.coral]].map((v, k) => v)) {
+  const lg = assetMeta('lounger'), lgSeat = assetAnchor('lounger', 'seat'), lgStand = assetAnchor('lounger', 'stand');
+  const lgCol = (lg && lg.meta.collider) || { r: 0.45, top: 0.6 };
+  for (const [i, stripe] of [[0, 0x1fb5ae], [1, 0xf06a50]]) {
     const p = local(ch, yaw0, 0, i ? 0.9 : -0.9);
     const y = gy(p);
-    propMesh(beachChair(stripe), p.x, y, p.z, yaw0 + (i ? -0.08 : 0.06));
-    addCollider(p.x, p.z, 0.45, y + 0.6);
-    const eye = local({ x: p.x, z: p.z, y }, yaw0, -0.35, 0, 1.05);
-    INTERACT.push({ x: p.x, z: p.z, y, r: 2.0, label: 'Relax in the beach chair', short: 'Sit', eye: new THREE.Vector3(eye.x, eye.y, eye.z), yaw: yaw0, pitch: 0.02, standX: local(p, yaw0, 0, 1.3).x, standZ: local(p, yaw0, 0, 1.3).z, kind: 'chair' });
+    const m = assetModel('lounger', { static: true, tint: { towel: stripe } });
+    if (m) {
+      m.position.set(p.x, y, p.z); m.rotation.y = yaw0 + (i ? -0.08 : 0.06);
+      m.quaternion.premultiply(new THREE.Quaternion().setFromUnitVectors(_up, groundNormal(p.x, p.z)));   // it stands on the slope of the beach
+      scene.add(m);
+    }
+    addCollider(p.x, p.z, lgCol.r, y + lgCol.top);
+    const sp = lgSeat ? lgSeat.position : { x: 0, y: 1.05, z: 0.35 }, st = lgStand ? lgStand.position : { x: 1.3, z: 0 };
+    const eye = local({ x: p.x, z: p.z, y }, yaw0, -sp.z, sp.x, sp.y), up = local(p, yaw0, -st.z, st.x);
+    INTERACT.push({ x: p.x, z: p.z, y, r: 2.0, label: 'Relax on the sun lounger', short: 'Sit', eye: new THREE.Vector3(eye.x, eye.y, eye.z), yaw: yaw0, pitch: lgSeat ? lgSeat.data.pitch ?? 0.02 : 0.02, standX: up.x, standZ: up.z, kind: 'chair' });
   }
   const up = local(ch, yaw0, -0.6, 0);
   propMesh(umbrella(C.white, C.teal), up.x, gy(up) - 0.2, up.z, 0);
