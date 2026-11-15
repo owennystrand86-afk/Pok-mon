@@ -26,6 +26,7 @@ Commands (run from `beach-paradise/`):
 | `tools/build.sh` | join `src/` (+ embed assets) into `build/index.html` for testing |
 | `tools/check.sh` | syntax-check the built page's module script (always run after a build) |
 | `tools/snap.sh steps.json` | run the game in a headless browser: logic tests and pictures (see Testing) |
+| `tools/sheet.py out.png a.png b.png ...` | tile pictures into one labelled sheet for side-by-side comparison |
 | `tools/build.sh --release` | write `index.html` (only when releasing) |
 
 ## How the game is put together
@@ -130,7 +131,11 @@ W=800 H=450 OUT=build/shots tools/snap.sh build/steps.json
   start it as a background command if your shell's time limit is shorter than the wait.
 - The run ends with `no console errors` or `CONSOLE PROBLEMS:` and a list: treat shader compile errors
   and exceptions as failures.
-- Look at every picture you take (open the image) and judge it honestly.
+- Look at every picture you take (open the image) and judge it honestly. `tools/sheet.py out.png a.png
+  b.png ...` tiles pictures into one labelled sheet (`--pairs dirA dirB` puts same-named pictures of two
+  folders side by side: before | after; `--crop x,y,w,h` zooms on a detail).
+- To judge motion, grab the same view several times with a short `"settle"` between (0.2-0.5 s) and tile
+  the frames into a strip.
 - `grab` shows the game canvas only. For the page as a player sees it (HUD, touch controls, the
   underwater tint overlay) or real-time behaviour, use the slow path: `tools/shot.sh final.png
   @steps.json` with `wait` (milliseconds) and `shot` steps; there the game runs in real time at well
