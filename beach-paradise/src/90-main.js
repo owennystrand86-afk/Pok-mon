@@ -634,9 +634,8 @@ function updatePrompt() {
 // ───────────────────── 34. Main loop ─────────────────────
 let last = performance.now(), sim = 0, fpsT = 0, fpsN = 0, warm = 0, slowTick = 0;
 const clockStart = performance.now();
-function frame(now) {
-  requestAnimationFrame(frame);
-  const dt = Math.min(0.05, Math.max(0.0001, (now - last) / 1000)); last = now;
+// one step of the whole game without drawing: frame() calls it, and tests call it through window.__bpStep
+function tick(dt, now) {
   sim += dt; U.uTime.value = sim;
   readKeys();
   updateEnvironment(dt, sim);
@@ -673,10 +672,22 @@ function frame(now) {
   if (AUDIO.update) AUDIO.update(dt);
   updateWaterFX(dt);
   updateWeatherFX(dt);
+}
+const FRAME_INFO = { calls: 0, triangles: 0 };   // what the last frame drew, all passes together (see window.__bpStats)
+function drawFrame() {
+  renderer.info.autoReset = false; renderer.info.reset();
   renderSubCam();
   renderWorld();
   renderGlow();
   renderTools();
+  FRAME_INFO.calls = renderer.info.render.calls; FRAME_INFO.triangles = renderer.info.render.triangles;
+}
+function frame(now) {
+  if (window.__bpNoDraw) return;   // tests (page opened with #nodraw): the loop stops; time only advances through __bpStep and pictures are drawn on request (__bpGrab)
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, Math.max(0.0001, (now - last) / 1000)); last = now;
+  tick(dt, now);
+  drawFrame();
   // adaptive resolution keeps phones smooth
   warm += dt; fpsT += dt; fpsN++;
   if (fpsT > 2.5) {
@@ -760,6 +771,19 @@ if (hot && hot.ready) hot.ready(startBoot); else startBoot(hot && hot.data);
 // small handle for poking at the island from the browser console
 // for tests: evaluate code inside this module, so anything defined in the game can be reached by name
 window.__bpEval = (code) => eval(code);
+if (/nodraw/.test(location.hash)) { window.__bpNoDraw = true; canvas.style.visibility = 'hidden'; }   // hidden: the headless browser would otherwise keep compositing the canvas and pile up memory
+// for tests: advance the whole game by `seconds` of game time without drawing (software GL is far too slow to wait for real time)
+window.__bpStep = (seconds = 1, dt = 1 / 30) => { const n = Math.max(1, Math.round(seconds / dt)); for (let i = 0; i < n; i++) tick(dt, performance.now()); return +sim.toFixed(2); };
+// for tests: draw the scene now (no time passes) and return the game canvas as raw pixels { w, h, px: RGBA rows, bottom row first }.
+// Read with readPixels on purpose: canvas.toDataURL() makes the headless test browser hold on to about 1 GB per call.
+window.__bpGrab = (frames = 1) => {
+  for (let i = 0; i < Math.max(1, frames); i++) drawFrame();
+  const gl = renderer.getContext(), w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(w * h * 4);
+  renderer.setRenderTarget(null); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  return { w, h, px };
+};
+// for tests: draw calls and triangles of the last frame (all passes), and what is alive on the GPU
+window.__bpStats = () => ({ calls: FRAME_INFO.calls, triangles: FRAME_INFO.triangles, geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures, programs: renderer.info.programs ? renderer.info.programs.length : 0 });
 window.__bp = { updateSeaLife, P, ENV, WX, settings, begin, camera, renderer, scene, spawnPlayer, groundHeight, PLACES, SPAWN, applyQuality, POOL, STREAM, FIELDS, INTERACT, input, keys, sit, U, updatePlayer, readKeys, waterAt, LAYOUT, SEA, PLATFORMS, updatePrompt,
   applyWaterStyle, updateCamera, FX, WFX, SPRAY, OLOD, updateOceanLOD, surfState, Q, LIGHTS, DECK, applyQuality, ISLANDS, FAR, farField, farHeight, TUB, PUMP, ABYSS, subStand, subSit, subWalk, poolClimbOut, nearestInteract, updatePlayer, input, keys, updatePump, updateSub, SUB_SEAT, cycleSubView, updateSubBoard, subCamera, renderSubCam, POOLB, TUBB, openTubPanel, closeTubPanel, pickPump, pickHose, placeCarried, reelHose, updateTub, poolWaterAt, cutGrass, LAWN, useLantern, takeLantern, toggleHeadlights, standOnDeck, deckTopAt, deckClimbFrom, updateLights, splashAt, rippleDrop, supportHeight, applyShovelPower, updateBoats, boatPhysics, updateTsunami, updateCabin, BUCKET, wetArea, SURF, startSurf, updateSurf, endSurf, surfAtJS, TREEFALL, breakTree, allTrees, blastTrees, updateTreefall, unhideTrees, VEG, PLANE, SUB, TRENCH, boardPlane, exitPlane, updatePlane, resetPlane, planeExplode, boardSub, exitSub, updateSub, setSonar, subDepth, implode, ANIMALS, updateBigAnimals, showHeldFish, FISHING, FISH, rollFish, hookFish, landFish, habitatAt, toggleJournal, updateFishing, WXFX, strike, updateWeatherFX, CABIN, WALLS, TSU, DESTROY, destroyCabin, repairIsland, flushTerrain, tsunamiErode, updateDestruction, sendTsunami, calmSea, insideCabin, cabinToWorld, worldToCabin, startSleep, cabinAction, nearestInteract, oceanHeight, tsunamiJS, pourAt, scoopAt, returnBoat,
   SAND, digAt, carveStroke, stampFoot, updateSand, riverQuery, BOATS, TUBE, boardBoat, exitBoat, startTube, setTool, TOOL, updateTools, aimGround, updateTubeWorld, sandWaterAt, SPRING, fillAt, pourAt, surveyRiver, DAM, updateDams, fallsWaterAt, swimStep, updateTools, riverLevelAt, riverCalmJS, oceanHeight, toggleShovelMode, T };
