@@ -115,9 +115,11 @@ async function assetInflate(u8, rawLen) {
 // One array out of the pack: n elements of c components, each w bytes wide. acc.f says how the packer rewrote it:
 // 0 as it was, 1 delta + zigzag + byte planes, 2 (indices) distance below the highest index so far + byte planes,
 // 3 difference from a prediction made from the triangles (idx = the primitive's decoded indices) + zigzag + planes.
+// Byte planes: byte k of component j of element i is at o + k * n * c + j * n + i.
 function assetArray(blob, acc, n, c, w, signed, idx) {
   const o = acc.o, m = n * c, f = acc.f | 0;
   const out = new (w === 1 ? Uint8Array : w === 2 ? Uint16Array : Uint32Array)(m);
+  const plane = q => (w === 1 ? blob[q] : w === 2 ? blob[q] | (blob[q + m] << 8) : (blob[q] | (blob[q + m] << 8) | (blob[q + 2 * m] << 16) | (blob[q + 3 * m] << 24)) >>> 0);
   if (!f) {
     if (w === 1) out.set(blob.subarray(o, o + m));
     else if (w === 2) for (let i = 0, p = o; i < m; i++, p += 2) out[i] = blob[p] | (blob[p + 1] << 8);
@@ -125,19 +127,16 @@ function assetArray(blob, acc, n, c, w, signed, idx) {
   } else if (f === 1) {
     for (let j = 0; j < c; j++) {
       let prev = 0;
-      const p0 = o + j * n, p1 = o + m + j * n;
-      for (let i = 0; i < n; i++) {
-        const z = w === 1 ? blob[p0 + i] : blob[p0 + i] | (blob[p1 + i] << 8);
-        prev = prev + ((z >>> 1) ^ -(z & 1));        // the typed array wraps it to the element's width
-        out[i * c + j] = prev;
+      for (let i = 0, q = o + j * n; i < n; i++, q++) {
+        const z = plane(q);
+        out[i * c + j] = prev + ((z >>> 1) ^ -(z & 1));     // the typed array wraps it to the element's width
         prev = out[i * c + j];
       }
     }
   } else if (f === 2) {
     let hw = 0;
     for (let i = 0; i < n; i++) {
-      let z = blob[o + i] | (blob[o + n + i] << 8);
-      if (w === 4) z = (z | (blob[o + 2 * n + i] << 16) | (blob[o + 3 * n + i] << 24)) >>> 0;
+      const z = plane(o + i);
       out[i] = hw - z;
       if (z === 0) hw++;
     }
@@ -155,8 +154,8 @@ function assetArray(blob, acc, n, c, w, signed, idx) {
         if ((p0 === o1 || p1 === o1 || p2 === o1) && (p0 === o2 || p1 === o2 || p2 === o2)) { kind = 3; d = p0 + p1 + p2 - o1 - o2; }
       }
       for (let j = 0; j < c; j++) {
-        const z = w === 1 ? blob[o + j * n + v] : blob[o + j * n + v] | (blob[o + m + j * n + v] << 8);
-        const pr = kind === 0 ? (v ? out[(v - 1) * c + j] : 0) : kind === 1 ? out[a * c + j] : kind === 2 ? (out[o1 * c + j] + out[o2 * c + j]) >> 1 : out[o1 * c + j] + out[o2 * c + j] - out[d * c + j];
+        const z = plane(o + j * n + v);
+        const pr = kind === 0 ? (v ? out[(v - 1) * c + j] : 0) : kind === 1 ? out[a * c + j] : kind === 2 ? Math.floor((out[o1 * c + j] + out[o2 * c + j]) / 2) : out[o1 * c + j] + out[o2 * c + j] - out[d * c + j];
         out[v * c + j] = pr + ((z >>> 1) ^ -(z & 1));
       }
       v++;
@@ -171,7 +170,7 @@ for (let i = 0; i < 256; i++) { const c = i / 255; ASSET_S2L[i] = c <= 0.04045 ?
 function assetDecodePrim(blob, p, alpha) {
   const nv = p.nv, d = {};
   const ix = d.idx = assetArray(blob, p.idx, p.ni, 1, p.idx.t === 'u32' ? 4 : 2);
-  const qp = assetArray(blob, p.pos, nv, 3, 2, false, ix), mn = p.pos.min, st = p.pos.step;
+  const qp = assetArray(blob, p.pos, nv, 3, p.pos.t === 'u32' ? 4 : 2, false, ix), mn = p.pos.min, st = p.pos.step;   // 32 bits where a primitive is too large for 16
   const pos = d.pos = new Float32Array(nv * 3);
   for (let i = 0; i < nv * 3; i += 3) { pos[i] = mn[0] + qp[i] * st; pos[i + 1] = mn[1] + qp[i + 1] * st; pos[i + 2] = mn[2] + qp[i + 2] * st; }
   const bits = p.nrm.bits || 8, qn = assetArray(blob, p.nrm, nv, 2, bits <= 8 ? 1 : 2, true, ix), k = 1 / ((1 << (bits - 1)) - 1);
@@ -184,7 +183,7 @@ function assetDecodePrim(blob, p, alpha) {
     nrm[j] = x * l; nrm[j + 1] = y * l; nrm[j + 2] = z * l;
   }
   if (p.uv) {
-    const q = assetArray(blob, p.uv, nv, 2, 2, false, ix), u0 = p.uv.min, us = p.uv.step, uv = d.uv = new Float32Array(nv * 2);
+    const q = assetArray(blob, p.uv, nv, 2, p.uv.t === 'u32' ? 4 : 2, false, ix), u0 = p.uv.min, us = p.uv.step, uv = d.uv = new Float32Array(nv * 2);
     for (let i = 0; i < nv * 2; i += 2) { uv[i] = u0[0] + q[i] * us; uv[i + 1] = u0[1] + q[i + 1] * us; }
   }
   if (p.col) {
@@ -504,13 +503,21 @@ function assetGeo(prim) {
 }
 // The same asset with its moving parts welded in place: one primitive per material and level of detail, for
 // models nobody is going to animate (far fewer draw calls). Built the first time it is asked for.
+// where every node stands in asset space while nothing has been moved: [{ m: Matrix4, q: Quaternion }]
+function assetRest(rec) {
+  if (rec.rest) return rec.rest;
+  const one = new THREE.Vector3(1, 1, 1);
+  rec.rest = [];
+  rec.nodes.forEach((nd, i) => {
+    const q = new THREE.Quaternion().fromArray(nd.r || [0, 0, 0, 1]), m = new THREE.Matrix4();
+    if (i) { m.compose(new THREE.Vector3().fromArray(nd.t || [0, 0, 0]), q, one).premultiply(rec.rest[nd.parent].m); q.premultiply(rec.rest[nd.parent].q); }
+    rec.rest.push({ m, q });
+  });
+  return rec.rest;
+}
 function assetStaticGroups(rec) {
   if (rec.fixed) return rec.fixed;
-  const M = rec.nodes.map(() => new THREE.Matrix4()), one = new THREE.Vector3(1, 1, 1);
-  rec.nodes.forEach((nd, i) => {
-    if (!i) return;
-    M[i].compose(new THREE.Vector3().fromArray(nd.t || [0, 0, 0]), new THREE.Quaternion().fromArray(nd.r || [0, 0, 0, 1]), one).premultiply(M[nd.parent]);
-  });
+  const M = assetRest(rec).map(r => r.m);
   const by = new Map();
   for (const g of rec.groups) g.lods.forEach((prim, l) => { if (!prim) return; let L = by.get(g.mat); if (!L) by.set(g.mat, L = []); (L[l] || (L[l] = [])).push([prim, M[g.node]]); });
   const v = new THREE.Vector3(), n3 = new THREE.Matrix3();
@@ -542,25 +549,27 @@ function assetStaticGroups(rec) {
   return rec.fixed;
 }
 const assetHas = name => ASSETS.by.has(name);
+// a level of detail the asset has: 0 .. its lightest
+const assetLevel = (rec, lod) => Math.max(0, Math.min(lod | 0, rec.lods.length - 1));
 function assetFindMat(rec, name) { return rec.materials.findIndex(d => d.name === name || (d.src && d.src.includes(name))); }
 // Raw geometry for instancing or a material of your own: attributes position, normal, color (linear, per
 // vertex base colour), uv (if textured), bpAux (occlusion, roughness, metalness, weight) and bpDid (which
 // detail texture). sel: { node: 'name', material: 'name', lod: 0, static: true }; all optional (the first
-// primitive of the root by default; static welds the moving parts in, as in assetModel).
-// The geometry is shared: clone it before changing it.
+// primitive of the root by default; static welds the moving parts in, as in assetModel). Null if nothing
+// matches at that level of detail. The geometry is shared: clone it before changing it.
 function assetGeometry(name, sel = {}) {
   const rec = ASSETS.by.get(name); if (!rec) return null;
   const ni = sel.node ? rec.nodes.findIndex(n => n.name === sel.node) : -1, mi = sel.material ? assetFindMat(rec, sel.material) : -1;
   if ((sel.node && ni < 0) || (sel.material && mi < 0)) return null;
-  const g = (sel.static ? assetStaticGroups(rec) : rec.groups).find(q => (ni < 0 || q.node === ni) && (mi < 0 || q.mat === mi)); if (!g) return null;
-  let l = Math.min(sel.lod | 0, g.lods.length - 1);
-  while (l > 0 && !g.lods[l]) l--;
-  return g.lods[l] ? assetGeo(g.lods[l]) : null;
+  const l = assetLevel(rec, sel.lod);
+  const g = (sel.static ? assetStaticGroups(rec) : rec.groups).find(q => (ni < 0 || q.node === ni) && (mi < 0 || q.mat === mi) && q.lods[l]);
+  return g ? assetGeo(g.lods[l]) : null;                // null also when the thing does not exist at that level
 }
 // every primitive of an asset at one level of detail: [{ node, material, geometry }]
 function assetGeometries(name, lod = 0) {
   const rec = ASSETS.by.get(name); if (!rec) return null;
-  return rec.groups.filter(g => g.lods[Math.min(lod, g.lods.length - 1)]).map(g => ({ node: rec.nodes[g.node].name, material: rec.materials[g.mat].name, geometry: assetGeo(g.lods[Math.min(lod, g.lods.length - 1)]) }));
+  const l = assetLevel(rec, lod);
+  return rec.groups.filter(g => g.lods[l]).map(g => ({ node: rec.nodes[g.node].name, material: rec.materials[g.mat].name, geometry: assetGeo(g.lods[l]) }));
 }
 // the shared THREE material of an asset's named material (for 'own' materials: that asset's alone)
 function assetMaterial(name, material, o) {
@@ -574,31 +583,42 @@ function assetMeta(name) {
   return rec.info || (rec.info = { name, bbox: rec.bbox, size: rec.bbox.getSize(new THREE.Vector3()), tris: rec.tris, lods: rec.lods, nodes: rec.nodes.map(n => n.name),
     materials: rec.materials.map(d => d.name), anchors: Object.keys(rec.anchors), meta: rec.meta });
 }
-// A named point of an asset: { position, quaternion, node, data } in the space of its node (asset space for
-// the root's). Forward of an anchor is its -Z, up its +Y. Do not modify the returned vectors.
+// A named point of an asset: { position, quaternion, node, data, rest }. position and quaternion are in the
+// space of its node (the moving part it rides on; asset space for the root's); rest.position and
+// rest.quaternion are the same in asset space while no part has been moved (what scenery placed once wants).
+// Forward of an anchor is its -Z, up its +Y. Do not modify the returned vectors.
 function assetAnchor(name, anchor) {
   const rec = ASSETS.by.get(name); if (!rec) return null;
   const a = rec.anchors[anchor]; if (!a) return null;
-  return rec.anchorCache[anchor] || (rec.anchorCache[anchor] = {
-    position: new THREE.Vector3().fromArray(a.p), quaternion: a.q ? new THREE.Quaternion().fromArray(a.q) : new THREE.Quaternion(),
-    node: rec.nodes[a.node].name, data: a.data || {},
-  });
+  if (rec.anchorCache[anchor]) return rec.anchorCache[anchor];
+  const position = new THREE.Vector3().fromArray(a.p), quaternion = a.q ? new THREE.Quaternion().fromArray(a.q) : new THREE.Quaternion(), r = assetRest(rec)[a.node];
+  return rec.anchorCache[anchor] = {
+    position, quaternion, node: rec.nodes[a.node].name, data: a.data || {},
+    rest: { position: position.clone().applyMatrix4(r.m), quaternion: r.q.clone().multiply(quaternion) },
+  };
 }
-// The same point in world space for a model made by assetModel (follows moving parts). Returns pos, or null.
+// The same point in world space for a model made by assetModel: it follows the model and its moving parts
+// (in a static model the parts stand where they were welded). Returns pos, or null.
 function assetAnchorWorld(model, anchor, pos = new THREE.Vector3(), quat = null) {
   const a = model && model.userData.asset ? assetAnchor(model.userData.asset, anchor) : null; if (!a) return null;
   const node = model.userData.nodes[a.node];
-  node.updateWorldMatrix(true, false);
-  pos.copy(a.position).applyMatrix4(node.matrixWorld);
-  if (quat) { node.getWorldQuaternion(quat); quat.multiply(a.quaternion); }
+  if (node) {
+    node.updateWorldMatrix(true, false);
+    pos.copy(a.position).applyMatrix4(node.matrixWorld);
+    if (quat) { node.getWorldQuaternion(quat); quat.multiply(a.quaternion); }
+  } else {
+    model.updateWorldMatrix(true, false);
+    pos.copy(a.rest.position).applyMatrix4(model.matrixWorld);
+    if (quat) { model.getWorldQuaternion(quat); quat.multiply(a.rest.quaternion); }
+  }
   return pos;
 }
+// Show one level of detail of a model (0 = full detail; clamped to the levels the asset has).
 function assetSetLod(model, level) {
-  const L = model.userData.lodMeshes;
-  model.userData.lod = level;
+  const L = model.userData.lodMeshes, rec = ASSETS.by.get(model.userData.asset);
+  level = model.userData.lod = assetLevel(rec, level);
   for (const e of L) {
-    let l = Math.min(level, e.group.lods.length - 1);
-    const prim = e.group.lods[l];                       // a part that exists only in the finer levels is hidden
+    const prim = e.group.lods[level];                   // a thing that exists only in the finer levels is hidden
     e.mesh.visible = !!prim;
     if (prim) { const g = assetGeo(prim); if (e.mesh.geometry !== g) e.mesh.geometry = g; }
   }
@@ -643,7 +663,7 @@ function assetModel(name, o = {}) {
   }
   root.userData = { asset: name, nodes, lodMeshes, lod: 0, lodAuto: false };
   const fixed = typeof o.lod === 'number';
-  if (fixed) assetSetLod(root, Math.max(0, Math.min(o.lod, rec.lods.length - 1)));
+  if (fixed) assetSetLod(root, o.lod);
   else {
     assetSetLod(root, 0);
     if (rec.lods.length > 1) { root.userData.lodAuto = true; ASSETS.lod.push(typeof WeakRef === 'function' ? new WeakRef(root) : { deref: () => root }); }

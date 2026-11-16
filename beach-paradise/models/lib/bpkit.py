@@ -824,19 +824,30 @@ def solidify(obj, thickness, offset=-1.0, rim=True):
 
 def rim(obj, depth, direction=None):
     """Give an open sheet a turned-down edge: its border is extruded by `depth` against the surface normal
-    (or along `direction`). A cloth or a panel lying on something then looks thick without a hidden underside."""
+    (or along `direction`). A cloth or a panel lying on something then looks thick without a hidden underside.
+    The sheet keeps facing the way it did; the new faces take the shading and material of the faces they grow from."""
     for o in _as_list(obj):
         me = o.data
         bm = bmesh.new(); bm.from_mesh(me)
         bm.normal_update()
         border = [e for e in bm.edges if e.is_boundary]
         if border:
+            inner = {e: e.link_faces[0] for e in border}
             res = bmesh.ops.extrude_edge_only(bm, edges=border)
             new = [g for g in res['geom'] if isinstance(g, bmesh.types.BMVert)]
+            newset = set(new)
+            push = Vector(direction).normalized() * depth if direction is not None else None
             for v in new:
-                d = Vector(direction).normalized() * depth if direction is not None else -v.normal * depth
+                d = push
+                if d is None:
+                    # a new vertex has no normal of its own yet: it goes against the normal of the border vertex it came from
+                    src = next((e.other_vert(v) for e in v.link_edges if e.other_vert(v) not in newset), None)
+                    d = -src.normal * depth if src is not None else Vector((0, 0, 0))
                 v.co += d
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+            for e, f0 in inner.items():
+                for f in e.link_faces:
+                    if f is not f0:
+                        f.smooth = f0.smooth; f.material_index = f0.material_index
         bm.to_mesh(me); bm.free(); me.update()
     return obj
 
@@ -1314,6 +1325,7 @@ def part(name, objs=None, pivot=(0, 0, 0), rot=(0, 0, 0), parent_part=None):
     e.empty_display_type = 'ARROWS'; e.empty_display_size = 0.1
     e.location = pivot; e.rotation_euler = rot
     e['bpk_part'] = True
+    e['bpk_name'] = name                  # Blender renames an object whose name is taken (a mesh called the same)
     _update()
     if parent_part is not None:
         parent(e, parent_part)
@@ -1330,6 +1342,7 @@ def anchor(name, loc=(0, 0, 0), rot=(0, 0, 0), parent_part=None, **data):
     e.empty_display_type = 'SINGLE_ARROW'; e.empty_display_size = 0.08
     e.location = loc; e.rotation_euler = rot
     e['bpk_anchor'] = json.dumps(data)
+    e['bpk_name'] = name                  # Blender renames an object whose name is taken (a mesh called the same)
     _update()
     if parent_part is not None:
         parent(e, parent_part)
@@ -1484,7 +1497,10 @@ def _ao_round(objs, distance, samples, ground, spacing, max_n):
         _, inv = np.unique(key, axis=0, return_inverse=True); inv = inv.reshape(-1)
         gn = np.bincount(inv, num); gd = np.bincount(inv, den)
         fit = np.where(gd > 1e-14, gn / np.maximum(gd, 1e-14), 0.35)[inv]
-        # how far the true shade strays from a straight line between the two ends of each triangle edge
+        # how far the true shade strays from a straight line between the two ends of each mesh edge (the
+        # diagonals a face is triangulated with are not edges: nothing can be cut there)
+        ne = len(rm.edges); ev = np.empty(ne * 2, np.int32); rm.edges.foreach_get('vertices', ev)
+        real = set(map(tuple, np.sort(ev.reshape(ne, 2), axis=1).tolist()))
         cand = {}
         for k, sel, b0, m, edges in s['groups']:
             if k < 2:
@@ -1500,6 +1516,8 @@ def _ao_round(objs, distance, samples, ground, spacing, max_n):
                 L = np.linalg.norm(s['W'][vb] - s['W'][va], axis=1)
                 for q in np.nonzero(e > 0.02)[0]:
                     key = (int(min(va[q], vb[q])), int(max(va[q], vb[q])))
+                    if key not in real:
+                        continue
                     old = cand.get(key)
                     if old is None or e[q] > old[0]:
                         cand[key] = (float(e[q]), float(L[q]))
@@ -1763,25 +1781,29 @@ def _tipsify(idx, nv, k=24):
     return idx[np.array(out, np.int64)] if nt else idx
 
 
-def _build_prim(P, Nn, UV, COL, AUX, DID, o):
-    """Quantise, weld and order one primitive. Inputs are per triangle corner (3 rows per triangle)."""
-    pmin = P.min(0); ext = float((P.max(0) - pmin).max())
-    step = max(ext / 65535.0, o['pos_step'])
-    qp = np.rint((P - pmin) / step).astype(np.int32)
+def _build_prim(P, Nn, UV, COL, AUX, DID, o, uv_step):
+    """Quantise, weld and order one primitive. Inputs are per triangle corner (3 rows per triangle).
+    Positions and UVs go on a fixed grid (o['pos_step'] metres, uv_step repeats), counted from the primitive's
+    own minimum: 16-bit numbers where its box is small enough for that, 32-bit ones where it is not, so a
+    5 mm bolt keeps its shape whether it sits in a hand tool or in a 40 m hull."""
+    pmin = P.min(0); step = float(o['pos_step'])
+    qp = np.rint((P - pmin) / step).astype(np.int64)
     qn = _oct_encode(Nn, o['normal_bits'])
     cols = [qp, qn]
-    uvmin = uvstep = None
+    uvmin = None
     if UV is not None:
-        uvmin = UV.min(0); uext = float((UV.max(0) - uvmin).max())
-        uvstep = max(uext / 65535.0, o['uv_step'])
-        cols.append(np.rint((UV - uvmin) / uvstep).astype(np.int32))
-    cols += [COL.astype(np.int32), AUX.astype(np.int32)]
+        uvmin = UV.min(0)
+        cols.append(np.rint((UV - uvmin) / uv_step).astype(np.int64))
+    cols += [COL.astype(np.int64), AUX.astype(np.int64)]
     if DID is not None:
-        cols.append(DID.astype(np.int32).reshape(-1, 1))
+        cols.append(DID.astype(np.int64).reshape(-1, 1))
     key = np.concatenate(cols, axis=1)
+    if key.max() >= 2 ** 32:
+        raise ValueError('a primitive is %.0f m across: too large for a %.2g m grid, pass a coarser pos_step' % (float((P.max(0) - pmin).max()), step))
     uniq, inv = np.unique(key, axis=0, return_inverse=True)
     idx = inv.reshape(-1, 3)
     good = (idx[:, 0] != idx[:, 1]) & (idx[:, 1] != idx[:, 2]) & (idx[:, 0] != idx[:, 2])
+    lost = int((~good).sum())
     idx = idx[good]
     if len(idx) == 0:
         return None
@@ -1794,18 +1816,19 @@ def _build_prim(P, Nn, UV, COL, AUX, DID, o):
     idx = remap[idx]; uniq = uniq[order]
     nv = len(uniq)
     c = 0
-    out = dict(nv=nv, ni=int(idx.size))
-    out['pos'] = uniq[:, c:c + 3].astype('<u2'); c += 3
+    out = dict(nv=nv, ni=int(idx.size), lost=lost)
+    wide = lambda a: '<u2' if int(a.max()) <= 65535 else '<u4'
+    out['pos'] = uniq[:, c:c + 3].astype(wide(uniq[:, c:c + 3])); c += 3
     out['nrm'] = uniq[:, c:c + 2].astype('<i1' if o['normal_bits'] <= 8 else '<i2'); c += 2
     if UV is not None:
-        out['uv'] = uniq[:, c:c + 2].astype('<u2'); c += 2
-        out['uvmin'] = [float(x) for x in uvmin]; out['uvstep'] = float(uvstep)
+        out['uv'] = uniq[:, c:c + 2].astype(wide(uniq[:, c:c + 2])); c += 2
+        out['uvmin'] = [float(x) for x in uvmin]; out['uvstep'] = float(uv_step)
     out['col'] = uniq[:, c:c + 4].astype('u1'); c += 4
     out['aux'] = uniq[:, c:c + 4].astype('u1'); c += 4
     if DID is not None:
         out['did'] = uniq[:, c].astype('u1'); c += 1
     out['idx'] = idx.astype('<u2' if nv <= 65535 else '<u4').reshape(-1)
-    out['pmin'] = [float(x) for x in pmin]; out['pstep'] = float(step)
+    out['pmin'] = [float(x) for x in pmin]; out['pstep'] = step
     real = pmin + out['pos'].astype(np.float64) * step
     out['bb'] = [[float(x) for x in real.min(0)], [float(x) for x in real.max(0)]]
     return out
@@ -1847,6 +1870,11 @@ def _corner_arrays(o, node_inv):
     if me.uv_layers.active is not None:
         uv = np.empty(nl * 2, np.float32); me.uv_layers.active.data.foreach_get('uv', uv); uv = uv.reshape(nl, 2).astype(np.float64)
     return dict(tl=tl, tp=tp, lv=lv, P=P[lv], N=Nw, li=li, defs=defs, col=col, pbr=pbr, ao=ao, uv=uv, nt=nt)
+
+
+def _given_name(o):
+    """The name a part or an anchor was made with (Blender may have added .001 to the object's own name)."""
+    return o.get('bpk_name') or o.name
 
 
 def _node_of(o):
@@ -1900,13 +1928,14 @@ def _lod_object(objs, ratio, node_world_inv, smooth_angle=45, keep_detail=False)
         if a is not None:
             _set_layer(me, nm, np.stack([np.bincount(inv, a[:, c]) / cnt for c in range(4)], axis=1)[inv])
     if not keep_detail:
-        while me.uv_layers:
-            me.uv_layers.remove(me.uv_layers[0])
+        if not any(mat_def(m).get('map') for m in mats):       # a picture still needs its UVs, however far away
+            while me.uv_layers:
+                me.uv_layers.remove(me.uv_layers[0])
         ob['bpk_no_detail'] = True
     return ob
 
 
-def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=None, pos_step=None, normal_bits=10, uv_step=1 / 1024,
+def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=None, pos_step=None, normal_bits=10, uv_step=None,
                optimise=True, out_dir=None, quiet=False):
     """Write models/out/<name>.bpk from the scene.
 
@@ -1918,10 +1947,13 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
     ao           True: bake ambient occlusion if it has not been baked; False: none; or a dict of bake_ao()
                  arguments, e.g. dict(ground=0.0, distance=0.5)
     meta         free-form dict for the game code (anything JSON can hold)
-    pos_step     position grid in metres (positions are 16 bit inside each primitive's box). Default: 0.1 mm, or
-                 1/12000 of the model's size if that is coarser. Finer costs bytes in the page.
+    pos_step     position grid in metres: every vertex is stored to the nearest multiple of it, whatever the
+                 size of the model. Default: 0.1 mm, or 4 millionths of the model's size if that is coarser
+                 (0.17 mm for a 43 m submarine, 8 mm for a 2 km island). Finer costs bytes in the page.
     normal_bits  8..16 bits per normal component (octahedral); 10 is plenty, 12+ for mirror-like surfaces
-    uv_step      texture coordinate grid, in repeats of the texture (1/1024 = a quarter of a texel)
+    uv_step      texture coordinate grid, in repeats of the texture. Default: a quarter of a texel of the
+                 texture the surface uses (1/1024 for the 256-pixel detail textures)
+    out_dir      where to write (default models/out; test assets that must not ship go elsewhere)
     Returns a dict of statistics (triangles and vertices per level, bytes)."""
     t0 = time.time()
     sc = bpy.context.scene
@@ -1933,8 +1965,8 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
     _update()
     if pos_step is None:
         lo_, hi_ = bounds(objs)
-        pos_step = max(1e-4, float(np.linalg.norm(hi_ - lo_)) / 12000)
-    opts = dict(pos_step=pos_step, normal_bits=int(normal_bits), uv_step=uv_step, optimise=optimise)
+        pos_step = max(1e-4, float(np.linalg.norm(hi_ - lo_)) / 250000)
+    opts = dict(pos_step=float(pos_step), normal_bits=int(normal_bits), optimise=optimise)
 
     # nodes: the root, then every part that holds geometry, an anchor or another part
     parts = [o for o in sc.objects if o.get('bpk_part')]
@@ -1957,9 +1989,9 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
         pw = par.matrix_world if par is not None else Matrix.Identity(4)
         loc, rot, scl = (pw.inverted() @ p.matrix_world).decompose()
         if max(abs(s - 1) for s in scl) > 1e-4:
-            raise ValueError('part %r is scaled: apply the scale to its meshes instead' % p.name)
+            raise ValueError('part %r is scaled: apply the scale to its meshes instead' % _given_name(p))
         t = _to_game(np.array(loc)); ax = _to_game(np.array([rot.x, rot.y, rot.z]))
-        nd = dict(name=p.name, parent=node_index[par])
+        nd = dict(name=_given_name(p), parent=node_index[par])
         if np.abs(t).max() > 1e-9:
             nd['t'] = [round(float(x), 6) for x in t]
         if abs(rot.w) < 1 - 1e-9:
@@ -2095,6 +2127,17 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
         blobs.append(b + b'\0' * pad); blob_len += len(b) + pad
         return off
 
+    def uv_grid(b):
+        """a quarter of a texel of the texture this batch uses"""
+        if uv_step is not None:
+            return float(uv_step)
+        if 'map' in batches[b]:
+            info = images[batches[b]['map']]
+            return 1.0 / (4 * max(info['w'], info['h']))
+        return 1.0 / 1024
+
+    lost = [0, 0]
+
     def emit(acc, lod):
         tris = verts = 0
         for (node_i, b) in sorted(acc):
@@ -2104,14 +2147,17 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
                 UV = np.concatenate([u if u is not None else np.zeros((len(p_), 2)) for u, p_ in zip(UVl, Pl)])
             if any(d_ is not None for d_ in Dl):
                 DID = np.concatenate([d_ if d_ is not None else np.zeros(len(p_), np.int32) for d_, p_ in zip(Dl, Pl)])
-            pr = _build_prim(np.concatenate(Pl), np.concatenate(Nl), UV, np.concatenate(Cl), np.concatenate(Al), DID, opts)
+            Pc = np.concatenate(Pl)
+            pr = _build_prim(Pc, np.concatenate(Nl), UV, np.concatenate(Cl), np.concatenate(Al), DID, opts, uv_grid(b))
+            lost[0 if lod == 0 else 1] += len(Pc) // 3 if pr is None else pr['lost']
             if pr is None:
                 continue
+            wide = lambda a: dict(t='u32') if a.dtype.itemsize == 4 else {}
             h = dict(node=node_i, mat=b, lod=lod, nv=pr['nv'], ni=pr['ni'], bb=[[round(x, 5) for x in v] for v in pr['bb']])
-            h['pos'] = dict(o=put(pr['pos']), min=pr['pmin'], step=pr['pstep'])
+            h['pos'] = dict(o=put(pr['pos']), min=pr['pmin'], step=pr['pstep'], **wide(pr['pos']))
             h['nrm'] = dict(o=put(pr['nrm']), bits=opts['normal_bits'])
             if 'uv' in pr:
-                h['uv'] = dict(o=put(pr['uv']), min=pr['uvmin'], step=pr['uvstep'])
+                h['uv'] = dict(o=put(pr['uv']), min=pr['uvmin'], step=pr['uvstep'], **wide(pr['uv']))
             h['col'] = dict(o=put(pr['col']))
             h['aux'] = dict(o=put(pr['aux']))
             if 'did' in pr:
@@ -2152,7 +2198,9 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
         extra = json.loads(o['bpk_anchor'])
         if extra:
             a['data'] = extra
-        anchors[o.name] = a
+        if _given_name(o) in anchors:
+            raise ValueError('two anchors are called %r' % _given_name(o))
+        anchors[_given_name(o)] = a
 
     # embedded images
     img_headers = []
@@ -2179,7 +2227,11 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
     with open(path, 'wb') as f:
         f.write(b'BPK1' + struct.pack('<II', len(hj), len(body)) + hj + body)
     stats.update(bytes=12 + len(hj) + len(body), path=path, nodes=len(nodes), materials=len(batches), prims=len(prims),
-                 images=len(images), seconds=time.time() - t0)
+                 images=len(images), seconds=time.time() - t0, pos_step=opts['pos_step'], lost=lost[0])
+    if lost[0]:
+        # triangles whose corners fell on the same grid point: something is too small for the grid
+        log('WARNING: %d triangle(s) of %s vanished at full detail: they are smaller than the %.2f mm position grid (pass a finer pos_step, or drop the detail)' % (
+            lost[0], name, opts['pos_step'] * 1000))
     if not quiet:
         log('%s.bpk: %s triangles, %s vertices, %d node(s), %d draw batch(es) at full detail, %d image(s), %.1f KB, %.1f s' % (
             name, '/'.join(str(x) for x in stats['tris']), '/'.join(str(x) for x in stats['verts']), len(nodes),

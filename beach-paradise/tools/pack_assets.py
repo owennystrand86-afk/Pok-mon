@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Embed the 3D assets in a built page.
 
-    tools/pack_assets.py <page.html> [--dir models/out] [--quiet]        (tools/build.sh calls this)
+    tools/pack_assets.py <page.html> [--dir DIR]... [--none] [--quiet]        (tools/build.sh calls this)
 
 Every models/out/*.bpk (written by models/lib/bpkit.py, format in DEVELOPING.md) is bundled into ONE
 container, raw-deflated (zlib level 9), base64-encoded and put into the page as
@@ -10,6 +10,9 @@ container, raw-deflated (zlib level 9), base64-encoded and put into the page as
 
 just before the game's module script. A script of that type is never run: src/15-assets.js reads its text
 at boot. With no .bpk files nothing is added and the page stays valid (a stale element is removed).
+--dir may be given several times (default: models/out): the packs of all the folders are bundled, and a pack
+in a later folder replaces one of the same asset name from an earlier folder (test pages: tools/build.sh
+--assets). --none embeds nothing at all.
 
 Container (little-endian), before deflate:
     'BPAK' | u32 version = 1 | u32 directory length | directory JSON, space-padded to 4 | blob
@@ -20,6 +23,8 @@ detail textures of the whole pack ({"image": i, "k": [tone, roughness, relief]})
 numbers of every asset ("did") are renumbered to point into it (0 = none, n = details[n - 1]), so that the
 game can keep all of them in one array texture and draw differently textured surfaces in one call.
 
+Positions and texture coordinates are 16-bit numbers on a grid inside their primitive's box, or 32-bit ones
+("t":"u32") where the box is too large for that.
 Before deflate each array may be rewritten so that it compresses better; "f" on the array says how:
     f absent  as in the .bpk
     f = 1     per component: difference from the previous element, zigzag, then all low bytes, all high bytes
@@ -60,10 +65,11 @@ def read_bpk(path):
 
 # (attribute key, numpy dtype or None = decided by the header, components)
 def accessors(prim):
-    out = [('pos', '<u2', 3)]
+    wide = lambda k: '<u4' if prim[k].get('t') == 'u32' else '<u2'
+    out = [('pos', wide('pos'), 3)]
     out.append(('nrm', '<i1' if prim['nrm'].get('bits', 8) <= 8 else '<i2', 2))
     if 'uv' in prim:
-        out.append(('uv', '<u2', 2))
+        out.append(('uv', wide('uv'), 2))
     if 'col' in prim:
         out.append(('col', 'u1', 4))
     if 'aux' in prim:
@@ -142,8 +148,21 @@ def filt_index(idx):
     return planes(v.astype('<u%d' % w).reshape(-1, 1))
 
 
-def pack(dir_path, use_filters=True):
-    files = sorted(glob.glob(os.path.join(dir_path, '*.bpk')))
+def find_packs(dirs):
+    """The .bpk files of the folders, by asset name; a later folder replaces an earlier one's pack of the same name."""
+    by_name, notes = {}, []
+    for d in dirs:
+        for path in sorted(glob.glob(os.path.join(d, '*.bpk'))):
+            name = read_bpk(path)[0]['name']
+            if name in by_name and os.path.dirname(by_name[name]) != os.path.dirname(path):
+                notes.append('%s: %s replaces %s' % (name, os.path.relpath(path, ROOT), os.path.relpath(by_name[name], ROOT)))
+            elif name in by_name:
+                raise ValueError('two packs in %s hold an asset called %r' % (d, name))
+            by_name[name] = path
+    return [by_name[k] for k in sorted(by_name)], notes
+
+
+def pack(files, use_filters=True):
     assets, images, image_ix, rows = [], [], {}, []
     details, detail_ix = [], {}
     blob = bytearray()
@@ -154,7 +173,6 @@ def pack(dir_path, use_filters=True):
 
     for path in files:
         header, body, size = read_bpk(path)
-        own_start = len(blob)
         # images: shared table, identical bytes stored once
         local = []
         for im in header.get('images', []):
@@ -169,6 +187,7 @@ def pack(dir_path, use_filters=True):
             if 'map' in m:
                 m['map'] = local[m['map']]
         header.pop('images', None)
+        own_start = len(blob)                                  # the images are counted on their own line
         # detail textures: one table for the whole pack; this asset's per-vertex numbers are translated to it
         lut = bytearray(range(256))
         for i, d in enumerate(header.pop('details', [])):
@@ -184,7 +203,7 @@ def pack(dir_path, use_filters=True):
             iraw = body[iacc['o']:iacc['o'] + ni * iw]
             pred = predictors(np.frombuffer(iraw, '<u%d' % iw), nv) if np is not None and use_filters else None
             for key, dt, comps in accessors(p):
-                acc = p[key]; w = np.dtype(dt).itemsize if np else {'<u2': 2, '<i2': 2, '<i1': 1, 'u1': 1}[dt]
+                acc = p[key]; w = np.dtype(dt).itemsize if np else {'<u4': 4, '<u2': 2, '<i2': 2, '<i1': 1, 'u1': 1}[dt]
                 raw = body[acc['o']:acc['o'] + nv * comps * w]
                 if key == 'did':
                     raw = raw.translate(lut)
@@ -219,15 +238,15 @@ def pack(dir_path, use_filters=True):
     return container, rows, images, (plain_total, filtered_total)
 
 
-def build_container(dir_path):
+def build_container(files):
     """Pack with the filters, and keep them only if they clearly pay."""
-    container, rows, images, (plain, filtered) = pack(dir_path, True)
+    container, rows, images, (plain, filtered) = pack(files, True)
     note = ''
     if np is None:
         note = 'numpy not found: arrays stored unfiltered'
     elif plain:
         a = len(deflate(container))
-        raw_container, raw_rows, _, _ = pack(dir_path, False)
+        raw_container, raw_rows, _, _ = pack(files, False)
         b = len(deflate(raw_container))
         if a < b * 0.97:
             note = 'delta/byte-plane filters kept: %d B deflated instead of %d B (-%.0f%%)' % (a, b, 100 * (1 - a / b))
@@ -238,41 +257,56 @@ def build_container(dir_path):
 
 
 def main(argv):
-    quiet, dir_path, page_path = False, os.path.join(ROOT, 'models', 'out'), None
+    quiet, dirs, none, page_path = False, [], False, None
     it = iter(argv)
     for a in it:
         if a == '--quiet':
             quiet = True
+        elif a == '--none':
+            none = True
         elif a == '--dir':
-            dir_path = next(it)
+            d = next(it, None)
+            if d is None:
+                print('pack_assets: --dir needs a folder', file=sys.stderr); return 2
+            dirs.append(d)
+        elif a.startswith('--'):
+            print('pack_assets: unknown option %s' % a, file=sys.stderr); return 2
         elif page_path is None:
             page_path = a
     if page_path is None:
         print(__doc__); return 2
+    dirs = [] if none else [os.path.abspath(d) for d in (dirs or [os.path.join(ROOT, 'models', 'out')])]
+    for d in dirs:
+        if not os.path.isdir(d) and d != os.path.join(ROOT, 'models', 'out'):
+            print('pack_assets: no folder %s' % d, file=sys.stderr); return 1
     page = open(page_path, encoding='utf-8').read()
     page = ELEMENT.sub('', page)
     before = len(page.encode())
-    if not glob.glob(os.path.join(dir_path, '*.bpk')):
+    files, notes = find_packs(dirs)
+    if not files:
         open(page_path, 'w', encoding='utf-8').write(page)
         if not quiet:
-            print('assets: none in %s, page left as it is' % os.path.relpath(dir_path, ROOT))
+            print('assets: none%s, page left as it is' % ('' if none else ' in ' + ', '.join(os.path.relpath(d, ROOT) for d in dirs)))
         return 0
     if MARK not in page:
         print('pack_assets: no %s in %s' % (MARK, page_path), file=sys.stderr); return 1
-    container, rows, images, note = build_container(dir_path)
+    container, rows, images, note = build_container(files)
     packed = deflate(container)
     b64 = base64.b64encode(packed).decode()
     element = '<script id="bp-assets" type="application/octet-stream" data-raw="%d">%s</script>\n' % (len(container), b64)
     page = page.replace(MARK, element + MARK, 1)
     open(page_path, 'w', encoding='utf-8').write(page)
     if not quiet:
-        print('%-22s %9s %9s %9s %10s %10s' % ('asset', 'tris', 'all lods', 'vertices', 'raw B', 'packed B'))
+        for n in notes:
+            print('assets:', n)
+        print('%-22s %9s %9s %9s %10s %10s %8s' % ('asset', 'tris', 'all lods', 'vertices', 'raw B', 'packed B', 'B/tri'))
         for name, lod0, tris, verts, size, pk in rows:
-            print('%-22s %9d %9d %9d %10d %10d' % (name, lod0, tris, verts, size, pk))
+            print('%-22s %9d %9d %9d %10d %10d %8.1f' % (name, lod0, tris, verts, size, pk, pk / max(tris, 1)))
         if images:
             print('%-22s %9s %9s %9s %10d' % ('images (%d, shared)' % len(images), '', '', '', sum(i['n'] for i in images)))
-        print('%-22s %9d %9d %9d %10d %10d' % ('total', sum(r[1] for r in rows), sum(r[2] for r in rows), sum(r[3] for r in rows),
-                                              len(container), len(packed)))
+        t_all = sum(r[2] for r in rows)
+        print('%-22s %9d %9d %9d %10d %10d %8.1f' % ('total', sum(r[1] for r in rows), t_all, sum(r[3] for r in rows),
+                                                    len(container), len(packed), len(packed) / max(t_all, 1)))
         if note:
             print(note)
         print('assets: %d B container -> %d B deflated -> %d B base64; page %d B -> %d B' % (
