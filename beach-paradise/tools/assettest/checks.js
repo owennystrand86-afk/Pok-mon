@@ -3,7 +3,7 @@
 (() => {
   const E = window.__bpEval, THREE = E('THREE'), ASSETS = E('ASSETS');
   const api = {};
-  for (const n of ['assetModel', 'assetGeometry', 'assetGeometries', 'assetMeta', 'assetAnchor', 'assetAnchorWorld', 'assetMaterial', 'assetSetLod', 'updateAssets', 'assetInflate', 'assetInflateJS', 'assetB64', 'assetHas']) api[n] = E(n);
+  for (const n of ['assetModel', 'assetGeometry', 'assetGeometries', 'assetMeta', 'assetAnchor', 'assetAnchorWorld', 'assetMaterial', 'assetSetLod', 'updateAssets', 'assetInflate', 'assetInflateJS', 'assetB64', 'assetHas', 'assetPose']) api[n] = E(n);
   const T = () => window.__truth, NAME = () => T().asset;
   const f = (v, d = 4) => (typeof v === 'number' ? +v.toFixed(d) : v);
   const s2l = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -393,6 +393,17 @@
     const W = n => rowMajor(t.nodes[n].world), armW = W('arm'), foreW = W('forearm'), handW = W('hand');
     const want = new THREE.Vector3().fromArray(t.anchors.tip.pos).applyMatrix4(foreW.clone().invert()).applyQuaternion(R).applyMatrix4(foreW);
     ok(after.distanceTo(want) < 3e-5 && before.distanceTo(after) > 0.05, 'turning the forearm part by 0.5 rad carries the hand\'s anchor with it', { moved: f(before.distanceTo(after)), error: +after.distanceTo(want).toExponential(2) });
+    // assetPose: the same turn counted from the rest position (calling it twice does not add up), a slide along the part's own axis, and back
+    api.assetPose(live, 'forearm', 0.5, 0, 0); api.assetPose(live, 'forearm', 0.5, 0, 0);
+    const posed = api.assetAnchorWorld(live, 'tip', new THREE.Vector3()).clone();
+    ok(posed.distanceTo(want) < 3e-5, 'assetPose turns a part about its own axis from where it stands at rest', +posed.distanceTo(want).toExponential(2));
+    api.assetPose(live, 'forearm', 0, 0, 0, [0, 0.2, 0]);
+    const slid = api.assetAnchorWorld(live, 'tip', new THREE.Vector3()).clone(), axisY = new THREE.Vector3().setFromMatrixColumn(foreW, 1).normalize();
+    ok(slid.distanceTo(before.clone().addScaledVector(axisY, 0.2)) < 3e-5, 'assetPose slides a part along its own axis', +slid.distanceTo(before).toFixed(4));
+    const back = api.assetPose(live, 'forearm');
+    ok(back === fore && api.assetAnchorWorld(live, 'tip', new THREE.Vector3()).distanceTo(before) < 1e-6, 'assetPose with no angles puts the part back');
+    ok(api.assetPose(live, 'nope', 1) === null && api.assetPose(live, NAME(), 1) === null && api.assetPose(api.assetModel(NAME(), { static: true }), 'forearm', 1) === null && api.assetPose(null, 'x') === null,
+      'assetPose is null for an unknown part, the root, a static model and no model');
     // a placed, turned and scaled model
     const placed = api.assetModel(NAME(), { lod: 0 }); placed.position.set(10, 2, -5); placed.rotation.set(0.2, 1.1, -0.3); placed.scale.setScalar(1.5);
     const got = api.assetAnchorWorld(placed, 'tip', new THREE.Vector3());

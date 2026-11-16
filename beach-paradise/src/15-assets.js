@@ -6,6 +6,7 @@
 //   assetModel(name, opts)     a new THREE.Group per call; geometries and materials are shared between calls
 //   assetGeometry(name, sel)   a raw BufferGeometry for instancing (vegetation, fish) or your own material
 //   assetMeta(name), assetAnchor(name, anchor), assetAnchorWorld(model, anchor, pos, quat)
+//   assetPose(model, part, rx, ry, rz, slide)   turn / slide a moving part from its rest position
 //   assetMaterial(name, material)   the THREE material behind a named asset material
 // Everything returns null when the pack or the name is missing: the game must boot without its assets.
 const ASSETS = {
@@ -615,6 +616,21 @@ function assetAnchorWorld(model, anchor, pos = new THREE.Vector3(), quat = null)
   }
   return pos;
 }
+// Turn and slide a moving part of a model, counted from where it stands at rest: rx, ry, rz are radians about the
+// part's OWN axes (the ones kit.part gave it, in the game's terms: x = Blender -X, y = Blender Z, z = Blender Y, so
+// a turn about Blender X changes sign and the other two keep theirs), slide = [x, y, z] metres along those axes.
+// Setting node.rotation.x yourself is only right for a part that was made without a rotation of its own.
+// Returns the part's Object3D, or null (no such part, or the model was made static).
+const _assetE = new THREE.Euler(), _assetQ = new THREE.Quaternion(), _assetV = new THREE.Vector3();
+function assetPose(model, part, rx = 0, ry = 0, rz = 0, slide = null) {
+  const rec = model && ASSETS.by.get(model.userData.asset), node = rec && model.userData.nodes[part];
+  const nd = node && node !== model ? rec.nodes.find(n => n.name === part) : null; if (!nd) return null;
+  if (nd.r) node.quaternion.fromArray(nd.r); else node.quaternion.identity();
+  if (nd.t) node.position.fromArray(nd.t); else node.position.set(0, 0, 0);
+  if (slide) node.position.add(_assetV.fromArray(slide).applyQuaternion(node.quaternion));
+  node.quaternion.multiply(_assetQ.setFromEuler(_assetE.set(rx, ry, rz, 'XYZ')));
+  return node;
+}
 // Show one level of detail of a model (0 = full detail; clamped to the levels the asset has).
 function assetSetLod(model, level) {
   const L = model.userData.lodMeshes, rec = ASSETS.by.get(model.userData.asset);
@@ -635,7 +651,7 @@ function assetSetLod(model, level) {
 //                   indoor light: { key: 'cabin', uniforms, fHead, fLight, onShader }
 //   opts.static     true: nobody will move its parts, so weld them in place (one draw call per material instead of
 //                   one per material and part). Use it for scenery.
-// model.userData.nodes[name] are the named moving parts (Object3D; turn or move them), model.userData.asset the name.
+// model.userData.nodes[name] are the named moving parts (Object3D; move them with assetPose), model.userData.asset the name.
 function assetModel(name, o = {}) {
   const rec = ASSETS.by.get(name); if (!rec) return null;
   const root = new THREE.Group(); root.name = name;

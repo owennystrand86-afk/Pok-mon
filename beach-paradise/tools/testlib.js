@@ -86,7 +86,7 @@
     //   opts.rot      turn it: degrees about the vertical, or [x, y, z] degrees (tilt first, then turn)
     //   opts.light    turn it so that the sun stands this many degrees round from the model's front (0 = full on
     //                 the front, 90 = from its Blender +X side, 180 = from behind); the hour sets how high it stands
-    //   opts.pose     { partName: [x, y, z] } turns moving parts by these degrees from where they stand at rest
+    //   opts.pose     { partName: [x, y, z] } turns moving parts by these degrees from where they stand at rest (assetPose)
     //   opts.static, opts.tint, opts.materials, opts.patch, opts.cast, opts.receive   passed on to assetModel
     //   opts.lift     false: the model's origin goes on the floor (default: its lowest point does)
     //   opts.grid     true: a faint one-metre grid on the floor, for scale
@@ -146,7 +146,7 @@
         for (const [part, e] of Object.entries(o.pose || {})) {
           const nd = m.userData.nodes[part];
           if (!nd) throw new Error('studio: "' + name + '" has no moving part "' + part + '"' + (o.static ? ' (static welds the parts)' : '') + '; it has: ' + Object.keys(m.userData.nodes).slice(1).join(', '));
-          nd.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(e[0] * D, e[1] * D, e[2] * D)));
+          E('assetPose')(m, part, e[0] * D, e[1] * D, e[2] * D);
         }
         g.add(m); models.push(m); used.push(m.userData.lod);
         all.union(box.clone().translate(m.position));

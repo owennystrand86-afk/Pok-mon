@@ -1649,7 +1649,7 @@ def ground_shadow(objs=None, z=0.0, strength=0.85, reach=None, margin=None, cell
     it as a see-through black layer, so even things too small or too low for the sun's shadow map sit on
     the ground instead of floating over it.
     z: ground height; reach: how far up the ground "looks" for the model (default: about its height);
-    cell: grid size in metres; upto: the last level of detail that still has it."""
+    cell: grid size in metres (default: a twentieth of its size); upto: the last level of detail that still has it."""
     objs = [o for o in _as_list(objs) if o.type == 'MESH' and not o.get('bpk_shadow')]
     t0 = time.time()
     sc = bpy.context.scene
@@ -1661,7 +1661,7 @@ def ground_shadow(objs=None, z=0.0, strength=0.85, reach=None, margin=None, cell
         margin = reach * 0.7
     x0, x1, y0, y1 = lo[0] - margin, hi[0] + margin, lo[1] - margin, hi[1] + margin
     if cell is None:
-        cell = float(min(max(max(x1 - x0, y1 - y0) / 30, 0.03), 0.3))
+        cell = float(min(max(max(x1 - x0, y1 - y0) / 20, 0.03), 0.3))     # the shade is soft: 20 cells across are plenty
     nx, ny = int(math.ceil((x1 - x0) / cell)), int(math.ceil((y1 - y0) / cell))
     xs, ys = np.linspace(x0, x1, nx + 1), np.linspace(y0, y1, ny + 1)
     V = [(x, y, z + 0.004) for y in ys for x in xs]
@@ -1706,10 +1706,11 @@ def ground_shadow(objs=None, z=0.0, strength=0.85, reach=None, margin=None, cell
 
 
 def bounds(objs=None):
-    """World-space bounding box (min, max) of the objects (all export objects by default)."""
+    """World-space bounding box (min, max) of the objects, as numpy arrays. By default: of the model, that is
+    every export object except the shade it leaves on the ground (kit.ground_shadow)."""
     _update()
     lo, hi = np.full(3, 1e30), np.full(3, -1e30)
-    for o in _as_list(objs):
+    for o in ([x for x in export_objects() if not x.get('bpk_shadow')] if objs is None else _as_list(objs)):
         if o.type != 'MESH' or len(o.data.vertices) == 0:
             continue
         nv = len(o.data.vertices); co = np.empty(nv * 3, np.float32); o.data.vertices.foreach_get('co', co)
@@ -1803,10 +1804,14 @@ def _build_prim(P, Nn, UV, COL, AUX, DID, o, uv_step):
     uniq, inv = np.unique(key, axis=0, return_inverse=True)
     idx = inv.reshape(-1, 3)
     good = (idx[:, 0] != idx[:, 1]) & (idx[:, 1] != idx[:, 2]) & (idx[:, 0] != idx[:, 2])
-    lost = int((~good).sum())
+    # triangles that had no area to begin with (a pole of a lathe, a pinched cap) are simply left out; only those
+    # that the grid flattened count as lost
+    T3 = P.reshape(-1, 3, 3)
+    flat = np.linalg.norm(np.cross(T3[:, 1] - T3[:, 0], T3[:, 2] - T3[:, 0]), axis=1) < 1e-12
+    lost = int((~good & ~flat).sum())
     idx = idx[good]
     if len(idx) == 0:
-        return None
+        return dict(nv=0, lost=lost)
     if o['optimise']:
         idx = _tipsify(idx, len(uniq))
     flat = idx.reshape(-1)
@@ -1918,15 +1923,20 @@ def _lod_object(objs, ratio, node_world_inv, smooth_angle=45, keep_detail=False)
         me.attributes.remove(me.attributes['custom_normal'])
     me.shade_smooth(); me.set_sharp_from_angle(angle=math.radians(smooth_angle))
     # decimation leaves every face corner with its own colour and shade: one value per vertex and material
-    # again, so that vertices can be shared (smaller, and it looks the same from where these levels are seen)
+    # again, so that vertices can be shared (smaller, and it looks the same from where these levels are seen).
+    # Each corner counts by the area of its face: what is left of a worn bevel or a dirty crease is a sliver,
+    # and must not repaint the big faces that meet at its vertices.
     mi = np.empty(len(me.polygons), np.int32); me.polygons.foreach_get('material_index', mi)
-    key = _loop_verts(me).astype(np.int64) * 4096 + mi[_face_of_loop(me)]
+    fl = _face_of_loop(me)
+    key = _loop_verts(me).astype(np.int64) * 4096 + mi[fl]
     _, inv = np.unique(key, return_inverse=True); inv = inv.reshape(-1)
-    cnt = np.maximum(np.bincount(inv), 1)
+    area = np.empty(len(me.polygons), np.float32); me.polygons.foreach_get('area', area)
+    w = area[fl].astype(np.float64) + 1e-12
+    tot = np.bincount(inv, w)
     for nm in ('Col', 'bpk_pbr', 'bpk_ao'):
         a = _get_layer(me, nm)
         if a is not None:
-            _set_layer(me, nm, np.stack([np.bincount(inv, a[:, c]) / cnt for c in range(4)], axis=1)[inv])
+            _set_layer(me, nm, np.stack([np.bincount(inv, a[:, c] * w) / tot for c in range(4)], axis=1)[inv])
     if not keep_detail:
         if not any(mat_def(m).get('map') for m in mats):       # a picture still needs its UVs, however far away
             while me.uv_layers:
@@ -1954,7 +1964,7 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
     uv_step      texture coordinate grid, in repeats of the texture. Default: a quarter of a texel of the
                  texture the surface uses (1/1024 for the 256-pixel detail textures)
     out_dir      where to write (default models/out; test assets that must not ship go elsewhere)
-    Returns a dict of statistics (triangles and vertices per level, bytes)."""
+    Returns a dict of statistics: tris and verts per level, size (game axes), bytes, nodes, materials, prims, lost."""
     t0 = time.time()
     sc = bpy.context.scene
     objs = [o for o in _as_list(objects) if o.type == 'MESH']
@@ -2149,8 +2159,8 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
                 DID = np.concatenate([d_ if d_ is not None else np.zeros(len(p_), np.int32) for d_, p_ in zip(Dl, Pl)])
             Pc = np.concatenate(Pl)
             pr = _build_prim(Pc, np.concatenate(Nl), UV, np.concatenate(Cl), np.concatenate(Al), DID, opts, uv_grid(b))
-            lost[0 if lod == 0 else 1] += len(Pc) // 3 if pr is None else pr['lost']
-            if pr is None:
+            lost[0 if lod == 0 else 1] += pr['lost']
+            if pr['nv'] == 0:
                 continue
             wide = lambda a: dict(t='u32') if a.dtype.itemsize == 4 else {}
             h = dict(node=node_i, mat=b, lod=lod, nv=pr['nv'], ni=pr['ni'], bb=[[round(x, 5) for x in v] for v in pr['bb']])
@@ -2227,14 +2237,15 @@ def export_bpk(name, objects=None, *, lods=(), lod_detail=False, ao=True, meta=N
     with open(path, 'wb') as f:
         f.write(b'BPK1' + struct.pack('<II', len(hj), len(body)) + hj + body)
     stats.update(bytes=12 + len(hj) + len(body), path=path, nodes=len(nodes), materials=len(batches), prims=len(prims),
-                 images=len(images), seconds=time.time() - t0, pos_step=opts['pos_step'], lost=lost[0])
+                 images=len(images), seconds=time.time() - t0, pos_step=opts['pos_step'], lost=lost[0],
+                 size=[round(float(x), 4) for x in hi - lo])                 # in the game's axes: width (x), height (y), length (z)
     if lost[0]:
         # triangles whose corners fell on the same grid point: something is too small for the grid
         log('WARNING: %d triangle(s) of %s vanished at full detail: they are smaller than the %.2f mm position grid (pass a finer pos_step, or drop the detail)' % (
             lost[0], name, opts['pos_step'] * 1000))
     if not quiet:
-        log('%s.bpk: %s triangles, %s vertices, %d node(s), %d draw batch(es) at full detail, %d image(s), %.1f KB, %.1f s' % (
-            name, '/'.join(str(x) for x in stats['tris']), '/'.join(str(x) for x in stats['verts']), len(nodes),
+        log('%s.bpk: %.3f x %.3f x %.3f m (wide, high, long), %s triangles, %s vertices, %d node(s), %d draw batch(es) at full detail, %d image(s), %.1f KB, %.1f s' % (
+            name, *stats['size'], '/'.join(str(x) for x in stats['tris']), '/'.join(str(x) for x in stats['verts']), len(nodes),
             len([p for p in prims if p['lod'] == 0]), len(images), stats['bytes'] / 1024, stats['seconds']))
     return stats
 
