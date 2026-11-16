@@ -422,7 +422,9 @@ function assetShader(sh) {
   sh.fragmentShader = sh.fragmentShader
     .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor *= vBpAux.z;')
     .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\n' + ASSET_ENV)
-    .replace('#include <aomap_fragment>', '#include <aomap_fragment>\n' + ASSET_AO);
+    .replace('#include <aomap_fragment>', '#include <aomap_fragment>\n' + ASSET_AO)
+    // light that is ADDED to the picture (blend 'add') must fade out in haze and murky water, not turn into a patch of haze
+    .replace(/gl_FragColor\.rgb = uHDR > 0\.5 \? applyFogHDR\([^\n]*/, fog => '#ifdef BP_ADD\n{ float bpFog = fogCF(vWPos, 1.0).a; gl_FragColor.rgb *= 1.0 - (uHDR > 0.5 ? pow(bpFog, 1.5) : bpFog); }\n#else\n' + fog + '\n#endif');
 }
 // a colour the way the game writes them: a hex number, a THREE.Color, or a display-space [r, g, b] triple
 function assetColor(c, out) {
@@ -451,7 +453,7 @@ function assetMakeMaterial(rec, d, o = {}) {
   m.name = d.name;
   if (d.blend === 'cutout') m.alphaTest = d.alphaTest ?? 0.5;
   else if (d.blend === 'blend') { m.transparent = true; m.depthWrite = false; }
-  else if (d.blend === 'add') { m.transparent = true; m.depthWrite = false; m.blending = THREE.AdditiveBlending; }
+  else if (d.blend === 'add') { m.transparent = true; m.depthWrite = false; m.blending = THREE.AdditiveBlending; m.defines.BP_ADD = ''; }
   if (d.emissive) m.emissive.setRGB(d.emissive[0], d.emissive[1], d.emissive[2]);
   if (d.map != null && ASSETS.textures[d.map]) m.map = ASSETS.textures[d.map];
   if (tint !== undefined) assetColor(tint, m.color);
